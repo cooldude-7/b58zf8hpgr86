@@ -98,6 +98,26 @@ class MainWindow(QMainWindow):
         self.a_read = A("&Read from ECU", self, enabled=False)
         self.a_burn.setEnabled(False)
 
+        # Edit / Tools act on the current table editor. Their shortcuts are
+        # shown in the menus but only live in the table view itself, so they
+        # never steal Ctrl+C or Ctrl+Z from a text field elsewhere.
+        def ed_action(label, method, key=None):
+            a = A(label, self, enabled=False)
+            if key: a.setShortcut(QKeySequence(key)); a.setShortcutContext(Qt.WidgetShortcut)
+            a.triggered.connect(lambda: self._with_editor(method))
+            return a
+        self.a_undo = ed_action("&Undo", "undo", QKeySequence.Undo)
+        self.a_redo = ed_action("&Redo", "redo", QKeySequence.Redo)
+        self.a_copy = ed_action("&Copy", "copy", QKeySequence.Copy)
+        self.a_paste = ed_action("&Paste", "paste", QKeySequence.Paste)
+        self.a_interp = ed_action("&Interpolate Selection", "interpolate", "I")
+        self.a_smooth = ed_action("&Smooth Selection", "smooth", "S")
+        self.a_scale = ed_action("Sc&ale Selection…", "scale_dialog", "*")
+        self.a_set = ed_action("Set Selection &Value…", "set_dialog", "=")
+        self.a_axes = ed_action("Set &Axis Breakpoints…", "edit_axes")
+        self.a_view3d = ed_action("Show &3D Surface", "show_3d")
+        self.a_view2d = ed_action("Show &Table", "show_2d")
+
         self.a_units_psi = A("Boost in &psi", self, checkable=True, checked=True)
         self.a_units_kpa = A("MAP in &kPa", self, checkable=True)
         self.a_units_psi.triggered.connect(lambda: self._set_units(True))
@@ -114,12 +134,8 @@ class MainWindow(QMainWindow):
         m.addSeparator(); m.addAction(self.a_exit)
 
         m = mb.addMenu("&Edit")
-        for label, sc in (("&Undo", QKeySequence.Undo), ("&Redo", QKeySequence.Redo)):
-            a = QAction(label, self, shortcut=sc, enabled=False); m.addAction(a)
-        m.addSeparator()
-        for label, sc in (("Cu&t", QKeySequence.Cut), ("&Copy", QKeySequence.Copy),
-                          ("&Paste", QKeySequence.Paste)):
-            a = QAction(label, self, shortcut=sc, enabled=False); m.addAction(a)
+        m.addAction(self.a_undo); m.addAction(self.a_redo); m.addSeparator()
+        m.addAction(self.a_copy); m.addAction(self.a_paste)
 
         m = mb.addMenu("&ECU")
         m.addAction(self.a_connect); m.addSeparator()
@@ -128,9 +144,10 @@ class MainWindow(QMainWindow):
         self.m_view = mb.addMenu("&View")
 
         m = mb.addMenu("&Tools")
-        for label in ("&Interpolate Selection", "&Smooth Selection", "Sc&ale Selection…",
-                      "Set &Axis Breakpoints…"):
-            a = QAction(label, self, enabled=False); m.addAction(a)
+        for a in (self.a_interp, self.a_smooth, self.a_scale, self.a_set):
+            m.addAction(a)
+        m.addSeparator(); m.addAction(self.a_axes)
+        m.addSeparator(); m.addAction(self.a_view2d); m.addAction(self.a_view3d)
 
         m = mb.addMenu("&Help")
         m.addAction(self.a_about)
@@ -175,13 +192,16 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True); self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
+        self.tabs.currentChanged.connect(self._update_edit_actions)
         self.setCentralWidget(self.tabs)
 
     def _build_statusbar(self):
         sb = self.statusBar()
         self.l_conn = QLabel(); self.l_tune = QLabel(); self.l_burn = QLabel()
         self.l_live = QLabel(); self.l_live.setMinimumWidth(240)
+        self.l_hint = QLabel(); self.l_hint.setObjectName("dim")
         sb.addWidget(self.l_conn); sb.addWidget(self.l_tune); sb.addWidget(self.l_burn)
+        sb.addWidget(self.l_hint, 1)
         sb.addPermanentWidget(self.l_live)
 
     # ----------------------------------------------------------------- items
@@ -191,6 +211,7 @@ class MainWindow(QMainWindow):
         if kind == "table":
             w = TableEditor(self.tune.tables[key], boost_psi=self.boost_psi)
             w.changed.connect(self._refresh_title)
+            w.undo_changed.connect(self._update_edit_actions)
             if self.conn.is_connected():
                 ch = self.conn.channels()
                 w.set_cursor(ch["rpm"], self._y_for(key, ch))
@@ -205,12 +226,32 @@ class MainWindow(QMainWindow):
             w = PlaceholderPage(label, phase)
         self.editors[key] = w
         self.tabs.addTab(w, label); self.tabs.setCurrentWidget(w)
+        self._update_edit_actions()
 
     def _close_tab(self, i):
         w = self.tabs.widget(i)
         for k, v in list(self.editors.items()):
             if v is w: del self.editors[k]
         self.tabs.removeTab(i); w.deleteLater()
+        self._update_edit_actions()
+
+    def _current_editor(self):
+        w = self.tabs.currentWidget()
+        return w if isinstance(w, TableEditor) else None
+
+    def _with_editor(self, method: str):
+        ed = self._current_editor()
+        if ed: getattr(ed, method)()
+
+    def _update_edit_actions(self, *_):
+        ed = self._current_editor()
+        for a in (self.a_copy, self.a_paste, self.a_interp, self.a_smooth, self.a_scale,
+                  self.a_set, self.a_axes, self.a_view2d, self.a_view3d):
+            a.setEnabled(ed is not None)
+        self.a_undo.setEnabled(bool(ed and ed.undo_stack))
+        self.a_redo.setEnabled(bool(ed and ed.redo_stack))
+        self.l_hint.setText("+ / −  bump    Ctrl  ×10    *  scale    =  set    I  interpolate    "
+                            "S  smooth    Ctrl+C / V  copy, paste    Ctrl+Z  undo" if ed else "")
 
     def _y_for(self, key, ch):
         return ch.get("map", 0.0) if key != "base_torque" else 0.9
@@ -297,11 +338,9 @@ class MainWindow(QMainWindow):
     def _set_units(self, psi: bool):
         self.boost_psi = psi
         self.a_units_psi.setChecked(psi); self.a_units_kpa.setChecked(not psi)
-        for key, w in self.editors.items():
+        for w in self.editors.values():
             if isinstance(w, TableEditor):
-                w.model.boost_psi = psi; w.model.headerDataChanged.emit(Qt.Vertical, 0, w.model.rowCount() - 1)
-                w.info.setText(f"{w.table.x_name} × {w.model.y_header_title()}"
-                               f"{'  —  ' + w.table.unit if w.table.unit else ''}")
+                w.set_units(psi)
 
     def _load_demo_log(self):
         log = generate(n=1200, seed=3)
@@ -312,8 +351,8 @@ class MainWindow(QMainWindow):
     def about(self):
         QMessageBox.about(self, f"About {APP_NAME}",
                           f"<b>{APP_NAME}</b> {APP_VERSION}<br>Tuner application for a "
-                          f"torque-structured engine controller.<br><br>Build: Phase 1 — "
-                          f"layout, tables, demo connection.")
+                          f"torque-structured engine controller.<br><br>Build: Phase 2 — "
+                          f"table editing, undo, 3D surface, demo connection.")
 
     def _default_dock_sizes(self):
         self.resizeDocks([self.dock_log], [330], Qt.Vertical)

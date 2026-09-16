@@ -58,11 +58,13 @@ python -m tuner --demo      # start connected to the demo ECU
 ```
 
 Windows executable: run `packaging\build.bat` from the repo root, then
-`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 1 of
-[docs/tuning-app-plan.md](docs/tuning-app-plan.md): layout, table editor with
-heat-map and live cursor, gauges, datalog view, tune load/save, and a fixed
-demo connection. Table keyboard operations, the simulated engine and the
-torque pages follow in Phases 2–4.
+`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 2 of
+[docs/tuning-app-plan.md](docs/tuning-app-plan.md): layout, heat-map table
+editor with live cursor, full keyboard editing (`+`/`-` bump, `*` scale, `=`
+set, `I` interpolate, `S` smooth, copy/paste, undo/redo), axis editing, a
+software-rendered 3D surface, gauges, datalog view, tune load/save, and a
+fixed demo connection. The simulated engine and the torque pages follow in
+Phases 3–4.
 
 ## Reference target
 

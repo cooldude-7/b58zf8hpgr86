@@ -13,6 +13,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="torquetune")
     ap.add_argument("--demo", action="store_true", help="connect to the demo ECU on start")
     ap.add_argument("--screenshot", metavar="PNG", help="render the main window to a file and exit")
+    ap.add_argument("--three-d", action="store_true", help="with --screenshot: show the 3D surface")
     ap.add_argument("tune", nargs="?", help="tune file to open")
     args = ap.parse_args(argv)
 
@@ -34,6 +35,8 @@ def main(argv=None):
     win = MainWindow(tune, persist_layout=not args.screenshot)
     if args.demo or args.screenshot:
         win.conn.connect_ecu()
+    if args.three_d and "ve" in win.editors:
+        win.editors["ve"].show_3d()
     win.show()
 
     if args.screenshot:

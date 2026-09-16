@@ -1,6 +1,6 @@
 # Tuning Application — Plan
 
-**Status: Phase 1 built (`tuner/`), Phases 2–5 pending.** This is the plan for the tuner-facing
+**Status: Phases 1–2 built (`tuner/`), Phases 3–5 pending.** This is the plan for the tuner-facing
 Windows application: the thing a tuner opens, connects to the ECU with, and
 edits tables in.
 
@@ -100,7 +100,8 @@ state, burn state, and a live RPM/boost readout.
   `S` smooths; `Ctrl+C` / `Ctrl+V`. Right-click menu carries the same.
 - Rectangular multi-select.
 - Cells changed since the last burn get a marker.
-- **3D** toggle on the tab: PyQtGraph OpenGL surface, same data, same colours.
+- **3D** toggle on the tab: software-rendered surface (QPainter, no OpenGL, so no
+  driver dependency), same data, same colours; drag to rotate, wheel to zoom.
 - Axis editor dialog. Units toggle applies to axis labels (kPa / psi).
 
 ### Gauges dock
