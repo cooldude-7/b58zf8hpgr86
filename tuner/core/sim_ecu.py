@@ -307,6 +307,7 @@ class SimulatedECU(ECUConnection):
         ch.update(rpm=self.rpm, map=map_kpa, boost=kpa_abs_to_boost_psi(map_kpa), tps=tps,
                   clt=self.clt, iat=self.iat, spark=spark, mbt=mbt, knock=knock,
                   torque=t_brake, torque_req=torque_target, authority=authority,
+                  cut_deg=max(spark_base - spark, 0.0), overrun=float(overrun),
                   batt=13.8 + float(self._rng.normal(0, 0.02)), air=air, ve=ve,
                   gear=float(self.gear), ratio=ratio_g, turbine_rpm=turbine,
                   output_rpm=self.v / (2 * math.pi * r_t) * 60.0 * fd, speed=self.v * 3.6,

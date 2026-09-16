@@ -34,15 +34,15 @@ class EngineSynth:
         self.sr = sr
         self.rng = np.random.default_rng(seed)
         r = self.rng
-        # soft pulse: mostly the pipe's fundamental, short
-        self.soft = (1.0 * _decay_sine(105, 0.035, 0.010) + 0.35 * _decay_sine(210, 0.035, 0.007)
-                     + 0.25 * _noise_burst(0.035, 0.004, 24, r))
-        # hard pulse: odd harmonics for rasp, brighter noise
-        self.hard = (1.0 * _decay_sine(105, 0.040, 0.012) + 0.6 * _decay_sine(315, 0.040, 0.006)
-                     + 0.4 * _decay_sine(525, 0.040, 0.004) + 0.6 * _noise_burst(0.040, 0.005, 6, r))
-        # afterfire pop: low, loud, long
-        self.pop = (2.2 * _decay_sine(70, 0.110, 0.030) + 1.4 * _noise_burst(0.110, 0.020, 10, r)
-                    + 0.5 * _decay_sine(140, 0.110, 0.015))
+        # the pipe rings for longer than the gap between firings, so successive
+        # pulses overlap into a continuous tone rather than separate bangs
+        self.soft = (1.0 * _decay_sine(105, 0.090, 0.028) + 0.30 * _decay_sine(210, 0.090, 0.018)
+                     + 0.08 * _noise_burst(0.090, 0.004, 24, r))
+        self.hard = (1.0 * _decay_sine(105, 0.090, 0.030) + 0.55 * _decay_sine(315, 0.090, 0.014)
+                     + 0.30 * _decay_sine(525, 0.090, 0.009) + 0.18 * _noise_burst(0.090, 0.006, 8, r))
+        # afterfire pop: low, loud, long -- and rare
+        self.pop = (2.2 * _decay_sine(70, 0.140, 0.040) + 1.0 * _noise_burst(0.140, 0.025, 12, r)
+                    + 0.5 * _decay_sine(140, 0.140, 0.020))
         for name in ("soft", "hard", "pop"):
             a = getattr(self, name); setattr(self, name, (a / np.abs(a).max()).astype(np.float32))
         self.soft = np.pad(self.soft, (0, len(self.hard) - len(self.soft)))   # crossfade needs equal lengths
@@ -66,12 +66,16 @@ class EngineSynth:
                     continue
                 if limiter and (k % 3 != 0):              # rev limiter: fuel cut on most events
                     continue
-                if cut > 0.05 and self.rng.random() < 0.35 * cut:
-                    continue                              # cylinder cut
-                amp = (0.18 + 0.82 * load) * self.imbalance[k % 4] * (1.0 + 0.08 * self.rng.normal())
-                if cut > 0.05 and self.rng.random() < 0.6 * cut:
-                    pulse, amp = self.pop, amp * (1.2 + 0.8 * cut)
-                    pos += int(self.rng.uniform(0.002, 0.006) * sr)   # retarded: late and lumpy
+                amp = (0.18 + 0.82 * load) * self.imbalance[k % 4] * (1.0 + 0.04 * self.rng.normal())
+                if cut > 0.05:
+                    # retarded firing: quieter in the cylinder, late, and now
+                    # and then the unburned charge lights in the pipe
+                    amp *= 1.0 - 0.6 * cut
+                    pos += int(self.rng.uniform(0.001, 0.004) * sr)
+                    if self.rng.random() < 0.10 * cut:
+                        pulse, amp = self.pop, (0.9 + 0.8 * cut) * (0.18 + 0.82 * load)
+                    else:
+                        pulse = self.hard
                 else:
                     pulse = (1.0 - load) * self.soft + load * self.hard
                 end = min(pos + len(pulse), len(out))

@@ -24,6 +24,8 @@ CHANNELS = [
     ("authority", "Authority",   "Nm",      0),
     ("batt",      "Battery",     "V",       1),
     ("knock",     "Knock limit", "° BTDC",  1),
+    ("cut_deg",   "Cut retard",  "°",       1),
+    ("overrun",   "Overrun cut", "",        0),
     ("air",       "Air mass",    "g/cyl",   3),
     ("ve",        "VE",          "",        3),
     ("gear",      "Gear",        "",        0),

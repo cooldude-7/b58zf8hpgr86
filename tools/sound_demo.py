@@ -24,7 +24,9 @@ for secs, pedal in timeline:
     sim.pedal = pedal
     for _ in range(int(secs / sim.dt)):
         sim._step(); ch = sim._channels
-        cut = 1.0 if ch["shift_phase"] in (2, 3) else max(0.0, min((ch["mbt"] - ch["spark"] - 3) / 20, 1))
+        # the coordinator exercise is placeholders, so the sim's shift window
+        # stands in for the retard it would command; cut_deg is the real thing
+        cut = max(min(ch["cut_deg"] / 20.0, 1.0), 1.0 if ch["shift_phase"] in (2, 3) else 0.0)
         limiter = ch["rpm"] > sim.tune.engine["rev_limit"]
         chunks.append(synth.render(BLOCK, ch["rpm"], min(ch["map"] / 200.0, 1.0), ch["boost"], ch["tps"] / 100.0, cut, limiter))
 audio = np.concatenate(chunks)
