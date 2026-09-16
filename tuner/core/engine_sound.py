@@ -40,12 +40,15 @@ class EngineSynth:
                      + 0.08 * _noise_burst(0.090, 0.004, 24, r))
         self.hard = (1.0 * _decay_sine(105, 0.090, 0.030) + 0.55 * _decay_sine(315, 0.090, 0.014)
                      + 0.30 * _decay_sine(525, 0.090, 0.009) + 0.18 * _noise_burst(0.090, 0.006, 8, r))
-        # afterfire pop: low, loud, long -- and rare
-        self.pop = (2.2 * _decay_sine(70, 0.140, 0.040) + 1.0 * _noise_burst(0.140, 0.025, 12, r)
-                    + 0.5 * _decay_sine(140, 0.140, 0.020))
-        for name in ("soft", "hard", "pop"):
+        # the cut itself: retarded firings are late and muffled
+        self.muffled = 1.0 * _decay_sine(95, 0.090, 0.030) + 0.05 * _noise_burst(0.090, 0.006, 40, r)
+        # the bang when torque lands back on the driveline: one low thud
+        self.bang = (2.5 * _decay_sine(48, 0.220, 0.060) + 0.8 * _decay_sine(96, 0.220, 0.030)
+                     + 0.9 * _noise_burst(0.220, 0.030, 30, r))
+        for name in ("soft", "hard", "muffled", "bang"):
             a = getattr(self, name); setattr(self, name, (a / np.abs(a).max()).astype(np.float32))
         self.soft = np.pad(self.soft, (0, len(self.hard) - len(self.soft)))   # crossfade needs equal lengths
+        self.prev_cut = 0.0
         self.tail = np.zeros(int(0.2 * sr), np.float32)
         self.phase = 0.0                 # firing events, in units of pulses
         self.turbo_phase = 0.0
@@ -68,19 +71,21 @@ class EngineSynth:
                     continue
                 amp = (0.18 + 0.82 * load) * self.imbalance[k % 4] * (1.0 + 0.04 * self.rng.normal())
                 if cut > 0.05:
-                    # retarded firing: quieter in the cylinder, late, and now
-                    # and then the unburned charge lights in the pipe
-                    amp *= 1.0 - 0.6 * cut
+                    # the note drops out: retarded firings are late and muffled
+                    amp *= 1.0 - 0.8 * cut
                     pos += int(self.rng.uniform(0.001, 0.004) * sr)
-                    if self.rng.random() < 0.10 * cut:
-                        pulse, amp = self.pop, (0.9 + 0.8 * cut) * (0.18 + 0.82 * load)
-                    else:
-                        pulse = self.hard
+                    pulse = self.muffled
                 else:
                     pulse = (1.0 - load) * self.soft + load * self.hard
                 end = min(pos + len(pulse), len(out))
                 out[pos:end] += amp * pulse[:end - pos]
             self.phase = p1
+        # torque comes back: one bang you feel, at the moment the cut releases
+        if self.prev_cut > 0.3 and cut < 0.1:
+            bang_amp = 0.35 + 0.65 * load
+            end = min(len(self.bang), len(out))
+            out[:end] += bang_amp * self.bang[:end]
+        self.prev_cut = cut
         # turbo: whistle pitch and level follow boost, with a whoosh under it
         b = max(boost_psi, 0.0) / 20.0
         if b > 0.02:
