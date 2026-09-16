@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QElapsedTimer, Qt, QTimer
 
 from tqmodel.model import (Engine, air_mass, friction_torque, lambda_efficiency,
                            spark_efficiency)
@@ -49,10 +49,15 @@ class SimulatedECU(ECUConnection):
         self.reset()
         self.coord = self.coord_state = self.coord_error = None
         self.load_coordinator()
+        # The timer is a wake-up, not the clock: repaints can delay it badly,
+        # so each tick runs as many fixed steps as wall-clock time demands.
         self._timer = QTimer(self)
-        self._timer.setInterval(int(self.dt * 1000))
+        self._timer.setTimerType(Qt.PreciseTimer)
+        self._timer.setInterval(10)
         self._timer.timeout.connect(self._tick)
-        self._n = 0
+        self._clock = QElapsedTimer()
+        self._acc = 0.0
+        self._since_publish = 0.0
 
     def reset(self):
         self.t = 0.0
@@ -82,6 +87,7 @@ class SimulatedECU(ECUConnection):
 
     # ---- connection -------------------------------------------------------
     def connect_ecu(self):
+        self._clock.start(); self._acc = 0.0; self._since_publish = 0.0
         self._timer.start()
         super().connect_ecu()
 
@@ -125,9 +131,14 @@ class SimulatedECU(ECUConnection):
 
     # ---- physics ------------------------------------------------------------------
     def _tick(self):
-        self._step()
-        self._n += 1
-        if self._n % 4 == 0:                        # publish at 25 Hz
+        elapsed = self._clock.restart() / 1000.0
+        self._acc += min(elapsed, 0.25)            # a long stall (debugger, sleep) is dropped, not replayed
+        n = 0
+        while self._acc >= self.dt and n < 25:
+            self._step(); self._acc -= self.dt; n += 1
+        self._since_publish += elapsed
+        if self._since_publish >= 0.04:             # publish at 25 Hz
+            self._since_publish = 0.0
             self.channels_updated.emit(self.channels())
 
     def _step(self):
@@ -239,19 +250,23 @@ class SimulatedECU(ECUConnection):
             wheel_rpm = self.v / (2 * math.pi * r_t) * 60.0
             turbine = wheel_rpm * ratio_eff                     # turbine is geared to the wheels
             sr = min(turbine / max(self.rpm, 1.0), 1.0)         # speed ratio, turbine / pump
-            # lock-up with hysteresis, and only once the converter is near coupling
+            # lock-up with hysteresis, once the converter is near coupling
             if self.tc_lock and turbine < 1200.0:
                 self.tc_lock = 0
-            elif not self.tc_lock and turbine > 1400.0 and sr > 0.9:
+            elif not self.tc_lock and turbine > 1400.0 and sr > 0.85:
                 self.tc_lock = 1
             tc_lock = self.tc_lock
             if tc_lock:
                 t_turbine = t_brake
                 self.rpm = turbine
             else:
-                # pump absorption rises with speed squared and falls to zero at
-                # coupling; torque multiplication is 1.6 at stall, 1.0 by coupling
-                t_pump_abs = 4.4e-5 * self.rpm ** 2 * max(1.0 - sr, 0.0)
+                # pump absorption rises with speed squared; its capacity holds
+                # until the turbine is well caught up, then tails off toward
+                # coupling but never to nothing -- so the engine cannot run
+                # away from the turbine. Multiplication is 1.6 at stall, 1.0
+                # by coupling.
+                f_sr = 1.0 if sr < 0.6 else max(1.0 - ((sr - 0.6) / 0.4) ** 2, 0.12)
+                t_pump_abs = 4.4e-5 * self.rpm ** 2 * f_sr
                 # the converter can only pass on what the engine actually makes
                 t_turbine = min(t_pump_abs, max(t_brake, 0.0)) * (1.6 - 0.6 * min(sr / 0.85, 1.0))
                 if t_brake < 0:                                 # overrun: engine dragged by the wheels
@@ -259,8 +274,10 @@ class SimulatedECU(ECUConnection):
                 rpm_dot = (t_brake - t_pump_abs) / 0.35 * 60.0 / (2 * math.pi)
                 self.rpm = min(max(self.rpm + rpm_dot * dt, 800.0), float(e.get("rev_limit", 7200)) + 300.0)
             wheel_torque = t_turbine * ratio_eff * 0.92
+            traction = 0.95 * m * 9.81 * 0.58                    # rear axle share on a decent tyre
+            force = min(max(wheel_torque / r_t, -traction), traction)
             road = 0.015 * m * 9.81 + 0.5 * 1.2 * 0.75 * self.v ** 2
-            a = (wheel_torque / r_t - road) / (m * 1.08)
+            a = (force - road) / (m * 1.08)
             self.v = max(self.v + a * dt, 0.0)
             if not self.shift and self.v > 2.0:
                 up, down = 2200.0 + 4800.0 * pedal, 1400.0 + 2100.0 * pedal

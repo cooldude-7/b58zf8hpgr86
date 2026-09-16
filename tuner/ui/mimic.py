@@ -390,13 +390,15 @@ class MimicPage(QWidget):
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
         lay.addWidget(head); lay.addLayout(body, 1)
         self.setStyleSheet(f"background: {BG.name()};")
-        self._timer = QTimer(self); self._timer.setInterval(33); self._timer.timeout.connect(self._frame); self._timer.start()
+        # the cutaway animates on its own clock; the transmission only changes
+        # when new channels arrive, so it repaints on update_channels instead
+        self._timer = QTimer(self); self._timer.setInterval(40); self._timer.timeout.connect(self._frame); self._timer.start()
 
     def _max(self, on):
         self.b_max.setText("Restore" if on else "Maximize"); self.maximize_toggled.emit(on)
 
     def _frame(self):
-        self.engine.advance(0.033); self.engine.update(); self.trans.update()
+        self.engine.advance(0.040); self.engine.update()
 
     def update_channels(self, ch: dict):
-        self.engine.ch = ch; self.trans.ch = ch
+        self.engine.ch = ch; self.trans.ch = ch; self.trans.update()
