@@ -2,8 +2,7 @@
 
     python tools\\shift\\test_shift.py
 
-No pytest needed. Each check prints PASS or FAIL with what it expected,
-so a failure tells you which TODO to look at.
+Each failure names the TODO responsible.
 """
 import os
 import sys
@@ -11,13 +10,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import numpy as np
 
-from tqmodel.model import spark_efficiency
-from shift.coordinator import ShiftCoordinator, ShiftRequest, ShiftState
+from shift.coordinator import (new_controller, start_shift, update,
+                               fraction_for_retard)
 
 DT, MBT, DRIVER, CUT, AIR_TAU = 0.001, 22.0, 400.0, 150.0, 0.18
-REQ = ShiftRequest(target_torque_nm=CUT, ramp_in_ms=50, hold_ms=250,
-                   ramp_out_ms=150)
-
 results = []
 
 
@@ -28,75 +24,81 @@ def check(name, ok, detail=""):
         print(f"         {detail}")
 
 
-def simulate(bug=False, n=900):
-    c = ShiftCoordinator(chase_air_bug=bug)
-    air, asked = DRIVER, False
-    rows = []
+def simulate(bug=False, n=900, moving_pedal=False):
+    """moving_pedal: the driver eases off slightly mid-shift.
+
+    This distinguishes a genuinely frozen air request from one that merely
+    happens to be constant because it is following an unchanging pedal.
+    """
+    c = new_controller()
+    c["chase_air_bug"] = bug
+    air, asked, rows = DRIVER, False, []
     for i in range(n):
         t = i * DT
+        driver = DRIVER
+        if moving_pedal and t > 0.20:
+            driver = DRIVER - 60.0        # pedal eases off during the shift
         if not asked and t >= 0.15:
-            c.request_shift(REQ, DRIVER)
+            start_shift(c, CUT, DRIVER)
             asked = True
-        cmd = c.update(DT, DRIVER, MBT)
-        air += (cmd.air_request_nm - air) * (DT / AIR_TAU)
-        rows.append((t, air * float(spark_efficiency(MBT - cmd.spark_deg)),
-                     cmd.spark_deg, cmd.air_request_nm, cmd.state))
+        spark, air_req, target = update(c, DT, driver, MBT)
+        air = air + (air_req - air) * (DT / AIR_TAU)
+        rows.append((t, air * fraction_for_retard(MBT - spark), spark,
+                     air_req, c["phase"]))
     return rows
 
 
 print("Running checks...\n")
 rows = simulate()
-t      = np.array([r[0] for r in rows])
+t = np.array([r[0] for r in rows])
 torque = np.array([r[1] for r in rows])
-spark  = np.array([r[2] for r in rows])
+spark = np.array([r[2] for r in rows])
 airreq = np.array([r[3] for r in rows])
-states = [r[4] for r in rows]
+phases = [r[4] for r in rows]
 
 seen = []
-for s in states:
-    if not seen or seen[-1] != s:
-        seen.append(s)
+for p in phases:
+    if not seen or seen[-1] != p:
+        seen.append(p)
 
-# 1 -- state machine visits all four states in order, and returns to IDLE
-check("TODO 1: state machine runs CUTTING -> HOLDING -> RESTORING -> IDLE",
-      seen == [ShiftState.IDLE, ShiftState.CUTTING, ShiftState.HOLDING,
-               ShiftState.RESTORING, ShiftState.IDLE],
-      f"got {[s.value for s in seen]}")
+check("TODO 1: phases run idle -> cutting -> holding -> restoring -> idle",
+      seen == ["idle", "cutting", "holding", "restoring", "idle"],
+      f"got {seen}")
 
-# 2 -- the shift lasts about as long as it was asked to
-busy = [i for i, s in enumerate(states) if s != ShiftState.IDLE]
-dur_ms = (busy[-1] - busy[0]) * DT * 1000 if busy else 0
-check("TODO 1: total duration is about 450 ms",
-      430 <= dur_ms <= 470, f"got {dur_ms:.0f} ms")
+busy = [i for i, p in enumerate(phases) if p != "idle"]
+dur = (busy[-1] - busy[0]) * DT * 1000 if busy else 0
+check("TODO 1: whole shift lasts about 450 ms",
+      430 <= dur <= 470, f"got {dur:.0f} ms")
 
-# 3 -- torque target is actually reached during the hold
-hold = [i for i, s in enumerate(states) if s == ShiftState.HOLDING]
-held = torque[hold[len(hold)//3:]] if hold else np.array([999.0])
-check("TODO 2+3: torque reaches the 150 Nm target during HOLDING",
+hold = [i for i, p in enumerate(phases) if p == "holding"]
+held = torque[hold[len(hold) // 3:]] if hold else np.array([999.0])
+check("TODO 2+3: torque reaches the 150 Nm target while holding",
       abs(held.mean() - CUT) < 12, f"got {held.mean():.1f} Nm, wanted ~{CUT}")
 
-# 4 -- THE important one: air request is held flat through the shift
-air_busy = airreq[busy] if busy else np.array([0.0, 1.0])
-check("TODO 4: air request stays CONSTANT during the shift",
-      np.ptp(air_busy) < 1.0,
-      f"air request moved by {np.ptp(air_busy):.1f} Nm - it must be frozen")
+# Run again with the pedal moving mid-shift. A correct implementation holds
+# the frozen value regardless; a placeholder that just echoes driver_torque
+# will follow the pedal and give itself away.
+mrows = simulate(moving_pedal=True)
+mbusy = [i for i, r in enumerate(mrows) if r[4] != "idle"]
+mair = np.array([mrows[i][3] for i in mbusy]) if mbusy else np.array([0.0, 99.0])
+check("TODO 4: air request stays FROZEN during the shift (pedal moves, air must not)",
+      len(mbusy) > 0 and np.ptp(mair) < 1.0,
+      f"it moved by {np.ptp(mair):.1f} Nm when the pedal moved -- it must stay "
+      f"frozen at the pre-shift value")
 
-# 5 -- no overshoot once the shift is done
 after = torque[t > 0.75]
 check("no torque overshoot after the shift",
       after.max() <= DRIVER * 1.03,
       f"peaked at {after.max():.1f} Nm vs driver request {DRIVER}")
 
-# 6 -- spark ends up back at MBT
-check("spark returns to MBT when idle",
+check("spark back at MBT once idle",
       abs(spark[-1] - MBT) < 0.5, f"ended at {spark[-1]:.1f} deg")
 
-# and the bug version should visibly differ
-bug = simulate(bug=True)
-bug_hold = np.array([r[1] for r in bug])[hold[len(hold)//3:]] if hold else np.array([0.0])
-print(f"\n  (sanity) with chase_air_bug=True the cut lands at "
-      f"{bug_hold.mean():.0f} Nm instead of {CUT:.0f} - "
-      f"{'bug reproduces' if bug_hold.mean() > CUT + 25 else 'bug not reproducing yet'}")
+bugrows = simulate(bug=True)
+bugheld = np.array([r[1] for r in bugrows])[hold[len(hold) // 3:]] if hold else np.array([0.0])
+print(f"\n  (sanity) with chase_air_bug on, the cut lands at {bugheld.mean():.0f} Nm "
+      f"instead of {CUT:.0f} -- "
+      f"{'bug reproduces' if bugheld.mean() > CUT + 25 else 'not reproducing yet'}")
 
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

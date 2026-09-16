@@ -1,87 +1,97 @@
 # Exercise: write the shift coordinator
 
-The physics is done (`tools/tqmodel/`). This is the **brain** — the part that
-decides what to command, moment by moment, while the transmission shifts.
+The physics is already written (`tools/tqmodel/`). This is the **brain** — the
+part that decides what to command, moment by moment, while the transmission
+shifts.
+
+Plain Python only: functions, dictionaries, `if`/`elif`, arithmetic. No
+classes, no dataclasses, no enums.
 
 ## The job
 
-Open `coordinator.py` and fill in four TODO blocks inside
-`ShiftCoordinator.update()`. Roughly 25 lines of real logic in total.
+Open `coordinator.py`, fill in four TODO blocks inside `update()`. About 25
+lines of real logic.
 
 | TODO | What it decides |
 |---|---|
-| 1 | State machine: CUTTING → HOLDING → RESTORING → IDLE |
-| 2 | The torque target right now (ramp down, hold, ramp up) |
-| 3 | The spark angle that produces that target |
-| 4 | **The air request** — the rule that makes or breaks the shift |
+| 1 | Move from one phase to the next at the right time |
+| 2 | What torque we are aiming for right now |
+| 3 | What spark angle produces that torque |
+| 4 | **How much air to ask for** — the one that makes or breaks it |
+
+Written for you: `retard_for_fraction()`, `fraction_for_retard()` and
+`ramp()`. Those are algebra, not architecture.
 
 ## Checking yourself
 
 ```cmd
-python tools\shift\test_shift.py     :: six pass/fail checks
-python tools\shift\simulate.py       :: plots what your code actually did
+python tools\shift\test_shift.py
+python tools\shift\simulate.py
 ```
 
-Run the tests first — each failure names the TODO to look at. Then run the
-simulation to see it.
+Run the tests first — each failure names the TODO to look at. Fresh out of the
+box you get **2/6**; those two are "nothing bad happened" guards that pass
+trivially. A correct implementation gets 6/6.
 
-A correct implementation produces:
+Then run the simulation to watch it:
 
 ```
 your code              during cut  150.0 Nm (target 150)   peak after  400.0 Nm
 with air-chase bug     during cut  277.1 Nm (target 150)   peak after  586.2 Nm
 ```
 
-The cut lands exactly on target, and torque returns to the driver's request
-with no overshoot. The bug version dilutes the cut to 277 Nm and then
-overshoots to nearly double.
+The cut lands exactly on target and returns with no overshoot. The bug version
+dilutes the cut to 277 Nm and then overshoots to nearly double.
 
-Note in the plot that **the spark traces are identical in both runs**. Same
-commanded timing, completely different outcome — the difference is entirely
-what the air path did underneath. That is the lesson.
+In the plot, notice **the spark traces are identical in both runs**. Same
+commanded timing, completely different outcome. The difference is entirely
+what the air path did underneath — which is the whole lesson.
 
-## Python refresher
+## Python you need
 
-Things this exercise uses, in case it has been a while:
+Only four things, and you have met all of them:
 
 ```python
-# dataclass -- a class that is just fields, no boilerplate
-@dataclass
-class Thing:
-    value: float = 0.0
-t = Thing(value=3.0);  t.value
+# a dictionary holds the controller's memory between ticks
+c = {"phase": "idle", "time_in_phase": 0.0}
+c["phase"] = "cutting"           # write
+if c["phase"] == "cutting":      # read
+    ...
 
-# enum -- named constants. compare with "is"
-class State(Enum):
-    IDLE = "idle"
-if self.state is State.IDLE: ...
+# if / elif / else
+if x == "a":
+    ...
+elif x == "b":
+    ...
+else:
+    ...
 
-# self -- the instance. self.x persists between calls, a plain x does not
-self.t_in_state += dt          # remembered next tick
-local = 5                      # forgotten immediately
+# calling the helpers that are already written
+degrees = retard_for_fraction(0.5)          # -> 30.0
+value = ramp(400.0, 150.0, 0.5)             # -> 275.0
 
-# linear interpolation from a to b, fraction f of the way
-value = a + (b - a) * f
-
-# clamp to 0..1
-f = np.clip(x, 0.0, 1.0)
-
-# f-string, for printing while debugging
-print(f"state={self.state} target={torque_target:.1f}")
+# printing while you debug
+print(c["phase"], c["time_in_phase"])
 ```
 
-Two things that catch people here:
+## Two things that catch people
 
-- **Milliseconds vs seconds.** `ShiftRequest` times are in ms, `dt` is in
-  seconds. Divide by 1000.
-- **Reset the timer on every state change.** `self.t_in_state = 0.0`, or the
-  next state's ramp starts partway through.
+- **Milliseconds vs seconds.** `RAMP_IN_MS` is 50 (milliseconds), but
+  `time_in_phase` counts in seconds. Compare against `RAMP_IN_MS / 1000.0`.
+- **Reset the timer on every phase change.** Set
+  `c["time_in_phase"] = 0.0` whenever you change `c["phase"]`, or the next
+  phase starts partway through.
 
 ## Stuck?
 
-Print things. Add `print(f"{self.state} {self.t_in_state:.3f}")` at the top of
-`update()` and run the simulation — you will see immediately whether the state
-machine is moving.
+Put a print at the top of `update()`:
 
-There is no reference solution in this repo on purpose. Ask me if you want a
-hint on a specific TODO rather than the whole thing.
+```python
+print(c["phase"], round(c["time_in_phase"], 3))
+```
+
+Run the simulation and you will see straight away whether the phases are
+advancing.
+
+No reference solution in this repo, on purpose. Ask for a hint on one TODO
+rather than the whole thing.
