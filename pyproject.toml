@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 build = ["pyinstaller"]
+sound = ["sounddevice"]
 
 [project.scripts]
 torquetune = "tuner.app:main"

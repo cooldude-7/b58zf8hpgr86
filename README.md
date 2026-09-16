@@ -57,6 +57,12 @@ pip install -e .            # once; installs PySide6, pyqtgraph, numpy, matplotl
 python -m tuner --demo      # start connected to the demo ECU
 ```
 
+For engine sound: `pip install sounddevice`, then tick **Engine sound** in the
+Simulator dock. It is synthesized from the live channels (firing pulses at
+rpm/30 Hz, exhaust resonance, turbo whistle, a bang and drop-out on a shift
+cut), not a recording of any particular engine. A recorded sample bank can
+replace it behind `EngineSynth.render()`.
+
 Windows executable: run `packaging\build.bat` from the repo root, then
 `dist\TorqueTune\TorqueTune.exe`. The application is at Phase 3 of
 [docs/tuning-app-plan.md](docs/tuning-app-plan.md): heat-map table editor

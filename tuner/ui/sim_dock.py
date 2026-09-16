@@ -9,9 +9,9 @@ COORD_NAMES = {0: "idle", 1: "cutting", 2: "holding", 3: "restoring"}
 
 
 class SimulatorDock(QScrollArea):
-    def __init__(self, sim, parent=None):
+    def __init__(self, sim, audio=None, parent=None):
         super().__init__(parent)
-        self.sim = sim
+        self.sim = sim; self.audio = audio
         self.setWidgetResizable(True); self.setFrameShape(QScrollArea.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         inner = QWidget(); self.setWidget(inner)
@@ -53,8 +53,26 @@ class SimulatorDock(QScrollArea):
         v.addLayout(row); v.addWidget(self.c_bug); v.addWidget(self.l_phase); v.addWidget(self.l_coord)
         v.addWidget(self.b_reload)
         lay.addWidget(box)
+
+        # sound
+        box = QGroupBox("Sound"); v = QVBoxLayout(box)
+        self.c_sound = QCheckBox("Engine sound (synthesized)")
+        row = QHBoxLayout(); row.addWidget(QLabel("Volume")); self.s_vol = QSlider(Qt.Horizontal)
+        self.s_vol.setRange(0, 100); self.s_vol.setValue(60); row.addWidget(self.s_vol)
+        self.c_standin = QCheckBox("Bang on every shift (stand-in until the coordinator cuts spark)")
+        self.c_standin.setChecked(True); self.c_standin.setWordWrap(True) if hasattr(self.c_standin, "setWordWrap") else None
+        v.addWidget(self.c_sound); v.addLayout(row); v.addWidget(self.c_standin)
+        if audio is None or not audio.available:
+            self.c_sound.setEnabled(False)
+            self.c_sound.setToolTip(f"Audio unavailable: {getattr(audio, 'error', 'sounddevice not installed')}\n"
+                                    "pip install sounddevice")
+        lay.addWidget(box)
         lay.addStretch()
 
+        if audio is not None:
+            self.c_sound.toggled.connect(self._sound)
+            self.s_vol.valueChanged.connect(lambda v: setattr(audio, "volume", v / 100.0))
+            self.c_standin.toggled.connect(lambda on: setattr(audio, "stand_in_cut", on))
         self.pedal.valueChanged.connect(self._pedal)
         self.r_dyno.toggled.connect(self._mode)
         self.rpm_set.valueChanged.connect(lambda v: setattr(self.sim, "dyno_rpm", float(v)))
@@ -64,6 +82,14 @@ class SimulatorDock(QScrollArea):
         self.c_bug.toggled.connect(self.sim.set_bug)
         self.b_reload.clicked.connect(self._reload)
         self._coord_status()
+
+    def _sound(self, on):
+        if on:
+            self.audio.start()
+            if self.audio.error:
+                self.c_sound.setChecked(False); self.c_sound.setToolTip(f"Audio failed: {self.audio.error}")
+        else:
+            self.audio.stop()
 
     def _pedal(self, v):
         self.sim.pedal = v / 100.0; self.l_pedal.setText(f"{v} %")

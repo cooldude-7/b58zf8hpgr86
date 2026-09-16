@@ -12,6 +12,7 @@ from tqmodel.units import kpa_abs_to_boost_psi
 from .. import APP_NAME, APP_VERSION, ORG_NAME
 import time
 
+from ..core.audio_out import AudioOutput
 from ..core.connection import DemoConnection
 from ..core.sim_ecu import SimulatedECU
 from ..core.tune import Tune, default_tune
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self.persist_layout = persist_layout
         self.tune = tune or default_tune()
         self.sim = SimulatedECU(self.tune)
+        self.audio = AudioOutput()
         self.demo = DemoConnection()
         self.conn = self.sim
         self._t0 = time.monotonic()
@@ -183,7 +185,7 @@ class MainWindow(QMainWindow):
         d.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
         self.addDockWidget(Qt.LeftDockWidgetArea, d); self.dock_nav = d
 
-        self.sim_dock = SimulatorDock(self.sim)
+        self.sim_dock = SimulatorDock(self.sim, self.audio)
         d = QDockWidget("Simulator", self); d.setObjectName("dock_sim")
         d.setWidget(self.sim_dock); d.setMinimumWidth(230)
         self.addDockWidget(Qt.LeftDockWidgetArea, d); self.dock_sim = d
@@ -384,6 +386,7 @@ class MainWindow(QMainWindow):
             self.l_conn.setText(f"<span style='color:#2E9E44'>●</span> Connected: {self.conn.name}")
             self.a_connect.setText("&Disconnect")
         else:
+            self.audio.update(dict(rpm=0.0, map=30.0, boost=0.0, tps=0.0, cut_deg=0.0))
             self.l_conn.setText("<span style='color:#9A9A9A'>●</span> Not connected")
             self.a_connect.setText("&Connect"); self.l_live.setText("")
             for w in self.editors.values():
@@ -404,6 +407,7 @@ class MainWindow(QMainWindow):
         if self.conn is self.sim:
             self.sim_dock.update_channels(ch)
             self.datalog.append(time.monotonic() - self._t0, ch)
+            self.audio.update(ch)
 
     # ----------------------------------------------------------------- misc
     def _set_units(self, psi: bool):
@@ -442,6 +446,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, ev):
         if not self._confirm_discard():
             ev.ignore(); return
+        self.audio.stop()
         if self.persist_layout:
             s = QSettings(ORG_NAME, APP_NAME)
             s.setValue("geometry", self.saveGeometry()); s.setValue("state", self.saveState())
