@@ -38,10 +38,23 @@ def generate(n=6000, seed=7, eng: Engine = None, injector_flow_error=0.0):
     rng = np.random.default_rng(seed)
     t = np.arange(n) * 0.01
 
-    rpm = np.clip(3900 + 2500 * np.sin(t / 7.0) + 1300 * np.sin(t / 2.3)
-                  + rng.normal(0, 40, n), 900, 7200)
-    map_kpa = np.clip(55 + 105 * (0.5 + 0.5 * np.sin(t / 5.0 + 1.1))
-                      + 25 * np.sin(t / 1.7) + rng.normal(0, 2.0, n), 25, 240)
+    def walk(lo, hi, tau, noise):
+        """Smoothed random walk -- independent drive cycles for rpm and load.
+
+        Sine waves would correlate rpm with load, which makes a fault in an
+        rpm-dependent term bleed into the air-mass residual panel and defeat
+        the whole point of plotting residuals per input. Real logs are far
+        less correlated than a pair of sines.
+        """
+        x = rng.normal(0, 1, n)
+        k = int(tau / 0.01)
+        kern = np.ones(k) / k
+        sm = np.convolve(x, kern, mode="same")
+        sm = (sm - sm.min()) / (np.ptp(sm) + 1e-9)
+        return np.clip(lo + (hi - lo) * sm + rng.normal(0, noise, n), lo, hi)
+
+    rpm = walk(900, 7200, 1.2, 40)
+    map_kpa = walk(25, 240, 0.8, 2.0)
     t_charge = 305 + 0.16 * np.clip(map_kpa - 100, 0, None) + rng.normal(0, 1.5, n)
 
     ve = truth_ve(rpm, map_kpa)

@@ -4,9 +4,17 @@ The ones that earn their keep. Residual plots are the important ones: an
 overlay tells you the model is wrong, residuals against each input tell you
 WHICH term is wrong.
 """
+import os
+import sys
+
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")
+
+# Only force the file-writing backend where there is genuinely no display.
+# On Windows and macOS the default backend is interactive, which is what
+# playground.py and VS Code cell output need.
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import cm
 

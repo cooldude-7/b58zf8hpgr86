@@ -1,0 +1,5 @@
+{
+  "python.analysis.extraPaths": ["./tools"],
+  "jupyter.interactiveWindow.textEditor.executeSelection": true,
+  "files.exclude": { "**/__pycache__": true }
+}

@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run demo (writes plots to out/)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/demo.py",
+      "args": ["out"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Interactive playground (sliders)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/playground.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -36,6 +36,21 @@ VE error vs truth       +7.00 %  (injected: +7.00 %)
 torque mean error       +14.7 Nm
 ```
 
+## Three ways to work with it
+
+| | Command | Good for |
+|---|---|---|
+| **Cells in VS Code** | open `tools/explore.py`, click **Run Cell** | Change a value, re-run one cell, plot updates beside your code. The main workflow. |
+| **Sliders** | `python tools\playground.py` | Dragging parameters and watching curves move in real time |
+| **Batch** | `python tools\demo.py out` | Regenerating the full plot set to files |
+
+`tools/explore.py` is a plain `.py` file with `# %%` markers — VS Code's Python
+extension turns each block into a runnable cell with inline plots, and it still
+diffs properly in git, unlike an `.ipynb`.
+
+Press **F5** in VS Code to run either entry point; both are in
+`.vscode/launch.json`.
+
 ## Modules
 
 | Module | Purpose |
@@ -46,6 +61,8 @@ torque mean error       +14.7 Nm
 | `plots.py` | The validation plots that earn their keep |
 | `units.py` | kPa absolute ↔ boost psi, Nm ↔ lb-ft |
 | `synth.py` | Synthetic log generator, so this runs before Phase 0 exists |
+| `explore.py` | Cell-based exploration for VS Code |
+| `playground.py` | Interactive sliders |
 
 ## Units
 
@@ -77,3 +94,9 @@ workflow.
 Note that the synthetic knock limit is a hand-written guess, so any conclusion
 drawn from it about where authority is scarce is an artifact of that guess, not
 a property of the engine. Real distributions come from real logs.
+
+The drive cycle uses independent smoothed random walks for RPM and load
+deliberately. Correlated inputs make a fault in one term bleed into another
+term's residual panel, which defeats the point of plotting residuals per
+input -- with sine-driven cycles an RPM-dependent fault showed a spurious
+slope against air mass.

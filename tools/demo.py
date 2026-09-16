@@ -8,6 +8,9 @@ something real to find -- which is the whole point of the technique.
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import matplotlib
+matplotlib.use("Agg")          # demo writes PNGs, never opens a window
+
 import numpy as np
 from tqmodel.model import Engine, brake_torque, air_mass, spark_efficiency
 from tqmodel.ve import ve_from_log, bin_surface
