@@ -29,14 +29,17 @@ modes — becomes another *torque requestor*. An arbitration layer resolves them
 into a single coordinated target, which is only then converted into air, fuel
 and spark setpoints.
 
-This is how OEMs do it, and it is the reason a factory automatic shifts better
-than an aftermarket ECU bolted to an aftermarket TCU. The transmission's request
-for a torque cut during the inertia phase of a shift is not a special case — it
-is just another requestor, arbitrated with correct authority limits and ramp
-rates.
+This is how OEMs do it. The transmission's request for a torque cut during the
+inertia phase of a shift is not a special case — it is just another requestor,
+arbitrated with correct authority limits and ramp rates.
 
-Load-table-first architectures cannot retrofit this. Torque-first gets
-integrated transmission control almost for free.
+**Calibrated claim:** this is not required to ship. MaxxECU controls a ZF8HP
+well from a conventional VE-table architecture with a single-scalar torque
+estimate. What the structure buys is an estimate that stays honest when spark is
+retarded or cams have moved, and an *available authority* signal a load-table
+design cannot populate. That is a robustness edge, not a capability nobody else
+has. See
+[transmission-control.md](docs/transmission-control.md#what-integration-actually-buys).
 
 ## Document map
 

@@ -50,7 +50,15 @@ control, and knock protection all need.
 The cost is that you need a **torque model** — an inverse map from desired
 torque to air charge, and a forward map from air/spark/lambda to produced
 torque. That is real calibration work and it is the main reason the aftermarket
-mostly does not do it. It is also the moat.
+mostly does not do it.
+
+**Torque estimate is not torque structure.** Several aftermarket ECUs derive a
+torque number from their VE table via a scalar factor, and that is enough to
+populate the CAN signals an OEM transmission controller expects. It is not a
+torque structure: there is no arbitration, and no way to answer "how much torque
+could I remove right now". Do not mistake having the former for having the
+latter — the difference is the whole argument in
+[transmission-control.md](transmission-control.md#what-integration-actually-buys).
 
 ## Module split
 

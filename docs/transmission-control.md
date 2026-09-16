@@ -1,10 +1,10 @@
 # Transmission Control
 
-This is the differentiating subsystem. It is also two entirely different
+This is the differentiating subsystem. It is also three entirely different
 products wearing the same name, and picking the wrong one first will sink the
 schedule.
 
-## Two approaches
+## Three approaches
 
 ### A. Mechatronic supervisor
 
@@ -57,44 +57,113 @@ This is where the real product is, and it is a multi-year control problem on its
 own. It is also unforgiving: a bad calibration destroys a transmission, and
 transmissions are expensive.
 
+### C. OEM TCU reflash
+
+Keep the OEM mechatronic hardware, but replace its firmware with your own. You
+inherit ZF's validated low-level hydraulic control — clutch fill, pressure
+control, the adaptation machinery — while owning the strategy layer above it:
+shift scheduling, shift points, mode logic, and special functions.
+
+**Prior art: this is what MaxxECU does.** Their GEN1 8HP support reflashes the
+stock TCU using a Yanhua ACDP-2 tool, giving "more direct control of actuators,
+clutches and other internal components." That buys them adjustable shift points
+to 9000 rpm, a transbrake with bump, kickdown, and virtual clutch / clutch-kick
+functions — none of which a supervisor could obtain through the OEM protocol.
+See <https://www.maxxecu.com/features/8hp_gearbox>.
+
+**Cost:** reverse engineering proprietary firmware, plus specialised flashing
+tooling. Per transmission variant, and generation-locked — GEN1 support does not
+imply GEN2.
+
+**What you give up:** the OEM hydraulic control strategy is still the OEM's. You
+can schedule shifts however you like, but you cannot fundamentally change how a
+clutch handover is executed. Also: flashing OEM firmware is legally grey in most
+jurisdictions and dependent on third-party tooling you do not control.
+
+### Comparison
+
+| | A. Supervisor | C. Reflash | B. Direct control |
+|---|---|---|---|
+| Low-level clutch control | ZF's | ZF's, retained | Yours, from scratch |
+| Strategy layer | OEM's | Yours | Yours |
+| Effort | Months | Months + reverse engineering | Years |
+| Ceiling | OEM protocol | OEM hydraulics | None |
+| Risk | Low | Legal/tooling dependency | Destroyed transmissions |
+
 ### Recommendation
 
-**Ship A for breadth, build B for one flagship.**
+**Ship A for breadth, evaluate C for the flagship, hold B as the long goal.**
 
-Supervisor mode for the common transmissions gets you a usable product and
-real-world installs early. Direct control on a single well-chosen target proves
-the hard capability and is the thing nobody else in the price bracket has.
+C is almost certainly the right flagship approach rather than B. It reaches
+most of the capability for a small fraction of the effort, and it is proven in
+the market. B remains the only path with no ceiling, but it should be entered
+knowingly and late, not as the opening move.
+
+Original framing, retained for the record:
+
+supervisor mode for the common transmissions gets you a usable product and
+real-world installs early; direct control on a single well-chosen target proves
+the hard capability. That second half is now better served by C in the near
+term.
 
 The flagship should be the **ZF8HP**. It is everywhere (BMW, Dodge, Jaguar,
 Chrysler, Ram, Audi), the aftermarket demand is enormous, the mechanical
 internals are well documented, and its eight ratios and fast shift capability
 show off good control in a way a four-speed cannot.
 
-## Why integration beats two boxes
+## What integration actually buys
 
-The standard aftermarket setup is an ECU from one vendor and a TCU from another,
-exchanging a handful of CAN messages. This fails in a specific and consistent
-way, and understanding it is the product argument:
+An earlier draft of this document claimed that a coordinated torque structure is
+what makes integrated transmission control *possible*. That is too strong, and
+the counterexample matters.
 
-**Torque reduction is a negotiation, and the two boxes are not speaking the same
-language.** The TCU asks for "torque reduction" and the ECU applies a spark
-retard from a table. Neither knows how much torque was actually removed, or
-whether the engine had the spark authority to remove it (it may already be
-retarded for knock, or at a hard limit). There is no feedback on delivery. The
-timing is whatever the CAN cycle time happens to be, typically 10–20 ms, against
-an inertia phase that lasts 200–400 ms and needs its ramp shaped.
+**MaxxECU is not torque-structure based.** Its
+[main fuel table](https://www.maxxecu.com/webhelp/settings-tuning-main_fuel_table.html)
+is a conventional VE table with a lambda target table. Torque is *derived* from
+it via a single scalar "Torque Factor", calibrated from one point on a dyno run.
+There is no driver-demand interpretation and no arbitration layer — torque is an
+observer hanging off the airflow model, not the currency the controller reasons
+in. And MaxxECU ships well-regarded 8HP control regardless.
 
-**In an integrated torque structure, none of that is true.** The shift
-controller places a torque request into the same arbitration everything else
-uses. The engine side knows its current authority, reports back what it can
-actually deliver, and the shift controller adapts its pressure trajectory
-accordingly. The coordination happens at the internal task rate, not a bus
-cycle. And crucially, when the engine *cannot* honour the request, the shift
-controller finds out in time to do something about it instead of committing to a
-pressure profile that assumed help it never received.
+So the honest claim is narrower:
 
-That is a measurably better shift, and it is not something a two-box setup can
-retrofit.
+> You need *a torque estimate* to control a modern automatic. You do **not**
+> need a torque structure to ship. The structure is a quality and robustness
+> argument, not a feasibility argument.
+
+### Where the estimate-only approach runs out
+
+A single scalar factor scaling off VE is essentially an **airflow-proportional**
+torque estimate. That is fine at steady state near the calibration point. It
+degrades in exactly the conditions a shift creates:
+
+- **Spark retard removes torque without changing airflow.** Unless a spark
+  efficiency correction is layered on top, the estimate does not see the very
+  torque reduction the shift requested. The signal is least trustworthy at the
+  moment it matters most.
+- **Cam phasing, lambda, and charge temperature** all change produced torque for
+  the same VE, and a one-point calibration cannot track them.
+- **There is no authority concept.** The estimate says what torque *is*. It
+  cannot say what torque the engine *could remove right now* — which depends on
+  how much spark advance is left after knock retard, limits, and protection
+  strategies have taken their share.
+
+### The signal that only a structure can provide
+
+The field in the contract below that a load-table ECU structurally cannot
+populate honestly is **available authority**: "here is how much torque I can
+remove right now on the fast path, given where spark already is."
+
+Without it, a shift controller commits to a pressure trajectory assuming a
+torque cut it may not receive, and finds out only from the resulting slip. With
+it, the shift controller plans against what is actually on offer, and degrades
+gracefully when the answer is "not much."
+
+That is a real edge. It is also a narrower one than the earlier draft implied,
+and the bar is higher than "nobody does this" — the incumbent already delivers
+shift quality most users are happy with. Differentiation has to be argued on
+robustness across operating conditions, not on capability that does not exist
+elsewhere.
 
 ## Integration contract
 

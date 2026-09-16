@@ -93,17 +93,27 @@ Valvetronic locked, ZF8HP under supervisor control. Factory DME removed.
 
 ---
 
-## Phase 6 — Direct transmission control
+## Phase 6 — Deeper transmission control
 
-The flagship capability. ZF8HP clutch-level control: fill learning, torque and
-inertia phase management, line pressure control, slip and lockup modulation,
-adaptation.
+Two candidate paths, and the cheaper one should be evaluated first.
 
-Requires the transmission bench from [hardware.md](hardware.md#bench-infrastructure).
-Multi-year on its own. Everything before this is prerequisite.
+**6a — OEM TCU reflash (evaluate first).** Replace the mechatronic unit's
+firmware, keep ZF's hydraulic control, own the strategy layer. This is what
+MaxxECU does, so it is proven reachable. Reaches most of the capability of
+direct control for a fraction of the effort. Gated on reverse engineering and
+on flashing tooling you do not control, and is variant- and generation-specific.
 
-**Exit:** direct control matching or exceeding supervisor-mode shift quality,
-with calibratable shift aggression.
+**6b — Direct mechatronic control.** Clutch-level control: fill learning, torque
+and inertia phase management, line pressure, slip and lockup modulation,
+adaptation. The only path with no ceiling, and a project comparable in size to
+Phases 0–5 combined. Requires the transmission bench from
+[hardware.md](hardware.md#bench-infrastructure) — it cannot be developed in a
+car.
+
+Enter 6b knowingly and late. It is not the opening move.
+
+**Exit:** shift quality measurably exceeding supervisor mode, with calibratable
+shift aggression.
 
 ---
 
@@ -112,7 +122,7 @@ with calibratable shift aggression.
 Phases 1, 2 and 4 are genuinely parallelisable if more than one person is
 working. Phase 3 depends on Phase 1. Phase 5 depends on everything. Phase 6
 depends on Phase 3's interface contract being right, which is why that contract
-is worth over-thinking now.
+is worth over-thinking now — both 6a and 6b must sit behind the same interface.
 
 The realistic honest estimate for Phases 0–5, for one competent person working
 evenings and weekends, is **several years**. Phase 6 is a project of comparable
