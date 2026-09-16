@@ -430,9 +430,9 @@ class MainWindow(QMainWindow):
                           f"simulated engine and 8HP, live powertrain view.")
 
     def _default_dock_sizes(self):
-        self.resizeDocks([self.dock_log], [330], Qt.Vertical)
+        self.resizeDocks([self.dock_log], [min(330, int(self.height() * 0.30))], Qt.Vertical)
         self.resizeDocks([self.dock_nav, self.dock_gauges], [200, 300], Qt.Horizontal)
-        self.resizeDocks([self.dock_nav, self.dock_sim], [300, 330], Qt.Vertical)
+        self.resizeDocks([self.dock_nav, self.dock_sim], [200, 520], Qt.Vertical)
 
     def _restore_layout(self) -> bool:
         if not self.persist_layout:
@@ -440,7 +440,7 @@ class MainWindow(QMainWindow):
         s = QSettings(ORG_NAME, APP_NAME)
         ok = False
         if s.value("geometry"): ok = self.restoreGeometry(s.value("geometry")) or ok
-        if s.value("state"): ok = self.restoreState(s.value("state")) or ok
+        if s.value("state_v2"): ok = self.restoreState(s.value("state_v2")) or ok
         return ok
 
     def closeEvent(self, ev):
@@ -449,5 +449,5 @@ class MainWindow(QMainWindow):
         self.audio.stop()
         if self.persist_layout:
             s = QSettings(ORG_NAME, APP_NAME)
-            s.setValue("geometry", self.saveGeometry()); s.setValue("state", self.saveState())
+            s.setValue("geometry", self.saveGeometry()); s.setValue("state_v2", self.saveState())
         super().closeEvent(ev)
