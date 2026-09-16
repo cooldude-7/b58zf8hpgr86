@@ -10,10 +10,23 @@ push the same vectors through both and diff the results.
 
 ## Install & run
 
+**Linux / macOS**
+
 ```bash
 pip install numpy matplotlib pandas
 python3 tools/demo.py out
 ```
+
+**Windows** — use `python` (or the `py` launcher), not `python3`. On Windows
+`python3` is a Microsoft Store stub that will not run this.
+
+```cmd
+pip install numpy matplotlib pandas
+python tools\demo.py out
+```
+
+Plots are written with the Agg backend, so no display is needed on any
+platform.
 
 The demo generates a synthetic log, deliberately injects a **7% injector flow
 error**, and shows the residual plots finding it. Expected output:
