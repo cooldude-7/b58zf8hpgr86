@@ -60,17 +60,17 @@ class Surface3D(QWidget):
         Z = zn * ZS - ZS / 2
         px, py, pd = self._project(X, Y, Z, w, h)
 
-        # base plate
-        bx, by, _ = self._project(np.array([-.5, .5, .5, -.5]), np.array([-.5, -.5, .5, .5]),
-                                  np.full(4, -ZS / 2), w, h)
+        # base plate; the corner nearest the viewer decides where labels go
+        CX, CY = np.array([-.5, .5, .5, -.5]), np.array([-.5, -.5, .5, .5])
+        bx, by, bd = self._project(CX, CY, np.full(4, -ZS / 2), w, h)
+        tx, ty, _ = self._project(CX, CY, np.full(4, ZS / 2), w, h)
+        near = int(np.argmin(bd))
         p.setPen(QPen(BASE, 1)); p.setBrush(Qt.NoBrush)
         p.drawPolygon(QPolygonF([QPointF(bx[k], by[k]) for k in range(4)]))
-        # vertical edges at the back corners help the eye read height
+        p.setPen(QPen(BASE, 1, Qt.DotLine))
         for k in range(4):
-            tx, ty, _ = self._project(np.array([bx[k] * 0 + [-.5, .5, .5, -.5][k]]),
-                                      np.array([[-.5, -.5, .5, .5][k]]), np.array([ZS / 2]), w, h)
-            p.setPen(QPen(BASE, 1, Qt.DotLine))
-            p.drawLine(QPointF(bx[k], by[k]), QPointF(tx[0], ty[0]))
+            if k != near:
+                p.drawLine(QPointF(bx[k], by[k]), QPointF(tx[k], ty[k]))
 
         # surface quads, far to near
         quads = []
@@ -87,25 +87,51 @@ class Surface3D(QWidget):
         for _, poly, c in quads:
             p.setBrush(c); p.drawPolygon(poly)
 
-        # axis labels: x breakpoints along the y=min edge, y along the x=min edge
+        # the near corner's vertical edge, drawn over the surface as a z reference
+        p.setPen(QPen(BASE, 1, Qt.DotLine))
+        p.drawLine(QPointF(bx[near], by[near]), QPointF(tx[near], ty[near]))
+
+        # labels on the two base edges that meet at the near corner -- these
+        # are always in front of the surface, whatever the rotation
         f = QFont(self.font()); f.setPointSize(8); p.setFont(f); p.setPen(TEXT)
-        sx = max(1, nx // 8); sy = max(1, ny // 6)
-        for i in range(0, nx, sx):
-            lx, ly, _ = self._project(np.array([X[0, i]]), np.array([-0.56]), np.array([-ZS / 2]), w, h)
-            p.drawText(QRectF(lx[0] - 24, ly[0] - 7, 48, 14), Qt.AlignCenter, f"{t.x[i]:g}")
         model = self.editor.model
-        for j in range(0, ny, sy):
-            lx, ly, _ = self._project(np.array([-0.56]), np.array([Y[j, 0]]), np.array([-ZS / 2]), w, h)
-            p.drawText(QRectF(lx[0] - 40, ly[0] - 7, 48, 14), Qt.AlignRight | Qt.AlignVCenter,
-                       str(model.headerData(model.row_of(j), Qt.Vertical)))
-        lx, ly, _ = self._project(np.array([0.0]), np.array([-0.70]), np.array([-ZS / 2]), w, h)
-        p.drawText(QRectF(lx[0] - 60, ly[0] - 7, 120, 14), Qt.AlignCenter, t.x_name)
-        lx, ly, _ = self._project(np.array([-0.78]), np.array([0.0]), np.array([-ZS / 2]), w, h)
-        p.drawText(QRectF(lx[0] - 60, ly[0] - 7, 120, 14), Qt.AlignCenter, model.y_header_title())
-        # z range beside the x=max, y=min corner edge, clear of the y labels
-        for zv, lab in ((-ZS / 2, t.fmt.format(vmin)), (ZS / 2, t.fmt.format(vmax))):
-            lx, ly, _ = self._project(np.array([0.5]), np.array([-0.5]), np.array([zv]), w, h)
-            p.drawText(QRectF(lx[0] + 6, ly[0] - 7, 64, 14), Qt.AlignLeft | Qt.AlignVCenter, lab)
+        ex, ey = float(np.sign(CX[near])), float(np.sign(CY[near]))   # outward directions
+
+        def text_at(X, Y, Z, label, align_out_x=False, cx_hint=None):
+            lx, ly, _ = self._project(np.array([X]), np.array([Y]), np.array([Z]), w, h)
+            if align_out_x:
+                if lx[0] < w / 2:
+                    p.drawText(QRectF(lx[0] - 64, ly[0] - 7, 64, 14), Qt.AlignRight | Qt.AlignVCenter, label)
+                else:
+                    p.drawText(QRectF(lx[0], ly[0] - 7, 64, 14), Qt.AlignLeft | Qt.AlignVCenter, label)
+            else:
+                p.drawText(QRectF(lx[0] - 30, ly[0] - 7, 60, 14), Qt.AlignCenter, label)
+
+        step_x = max(1, int(np.ceil(nx / 8)))
+        for i in range(0, nx, step_x):
+            text_at(X[0, i], CY[near] + ey * 0.08, -ZS / 2, f"{t.x[i]:g}")
+        text_at(0.0, CY[near] + ey * 0.22, -ZS / 2, t.x_name)
+
+        step_y = max(1, int(np.ceil(ny / 6)))
+        corner_j = 0 if CY[near] < 0 else ny - 1       # the y tick that would land on the corner
+        for j in range(0, ny, step_y):
+            if j == corner_j:
+                continue
+            text_at(CX[near] + ex * 0.06, Y[j, 0], -ZS / 2,
+                    str(model.headerData(model.row_of(j), Qt.Vertical)), align_out_x=True)
+        text_at(CX[near] + ex * 0.32, 0.0, -ZS / 2, model.y_header_title(), align_out_x=True)
+
+        # colour bar legend: the z range, on the dark background where it is readable
+        bar = QRectF(w - 34, 34, 12, max(80, h * 0.30))
+        for k in range(int(bar.height())):
+            p.setPen(heat(1.0 - k / bar.height()))
+            p.drawLine(QPointF(bar.left(), bar.top() + k), QPointF(bar.right(), bar.top() + k))
+        p.setPen(QPen(BASE, 1)); p.setBrush(Qt.NoBrush); p.drawRect(bar)
+        p.setPen(TEXT)
+        p.drawText(QRectF(bar.left() - 70, bar.top() - 7, 66, 14), Qt.AlignRight | Qt.AlignVCenter, t.fmt.format(vmax))
+        p.drawText(QRectF(bar.left() - 70, bar.bottom() - 7, 66, 14), Qt.AlignRight | Qt.AlignVCenter, t.fmt.format(vmin))
+        if t.unit:
+            p.drawText(QRectF(bar.left() - 70, bar.bottom() + 8, 78, 14), Qt.AlignRight | Qt.AlignVCenter, t.unit)
 
         # live cursor
         if self.editor.cursor is not None and self.editor.cursor_xy is not None:
