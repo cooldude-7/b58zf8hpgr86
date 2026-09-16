@@ -42,10 +42,14 @@ class EngineSynth:
                      + 0.30 * _decay_sine(525, 0.090, 0.009) + 0.18 * _noise_burst(0.090, 0.006, 8, r))
         # the cut itself: retarded firings are late and muffled
         self.muffled = 1.0 * _decay_sine(95, 0.090, 0.030) + 0.05 * _noise_burst(0.090, 0.006, 40, r)
-        # the bang when torque lands back on the driveline: one low thud
-        self.bang = (2.5 * _decay_sine(48, 0.220, 0.060) + 0.8 * _decay_sine(96, 0.220, 0.030)
-                     + 0.9 * _noise_burst(0.220, 0.030, 30, r))
-        for name in ("soft", "hard", "muffled", "bang"):
+        # THE bang: the first retarded charges light in the hot exhaust as the
+        # cut begins -- a sharp crack on top of a heavy low body
+        self.bang = (1.6 * _noise_burst(0.260, 0.012, 3, r)          # the crack: bright, very short
+                     + 3.0 * _decay_sine(55, 0.260, 0.070) + 1.2 * _decay_sine(110, 0.260, 0.040)
+                     + 1.0 * _noise_burst(0.260, 0.045, 24, r))       # the body: low, longer
+        # the smaller thud when torque lands back on the driveline
+        self.thud = 2.0 * _decay_sine(45, 0.180, 0.050) + 0.5 * _noise_burst(0.180, 0.025, 40, r)
+        for name in ("soft", "hard", "muffled", "bang", "thud"):
             a = getattr(self, name); setattr(self, name, (a / np.abs(a).max()).astype(np.float32))
         self.soft = np.pad(self.soft, (0, len(self.hard) - len(self.soft)))   # crossfade needs equal lengths
         self.prev_cut = 0.0
@@ -80,11 +84,13 @@ class EngineSynth:
                 end = min(pos + len(pulse), len(out))
                 out[pos:end] += amp * pulse[:end - pos]
             self.phase = p1
-        # torque comes back: one bang you feel, at the moment the cut releases
-        if self.prev_cut > 0.3 and cut < 0.1:
-            bang_amp = 0.35 + 0.65 * load
+        # cut begins: the BANG. cut releases: the thud you feel as torque returns
+        if self.prev_cut < 0.1 and cut > 0.3:
             end = min(len(self.bang), len(out))
-            out[:end] += bang_amp * self.bang[:end]
+            out[:end] += (1.4 + 1.6 * load) * self.bang[:end]
+        if self.prev_cut > 0.3 and cut < 0.1:
+            end = min(len(self.thud), len(out))
+            out[:end] += (0.3 + 0.5 * load) * self.thud[:end]
         self.prev_cut = cut
         # turbo: whistle pitch and level follow boost, with a whoosh under it
         b = max(boost_psi, 0.0) / 20.0
