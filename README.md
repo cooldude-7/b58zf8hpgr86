@@ -58,13 +58,16 @@ python -m tuner --demo      # start connected to the demo ECU
 ```
 
 Windows executable: run `packaging\build.bat` from the repo root, then
-`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 2 of
-[docs/tuning-app-plan.md](docs/tuning-app-plan.md): layout, heat-map table
-editor with live cursor, full keyboard editing (`+`/`-` bump, `*` scale, `=`
-set, `I` interpolate, `S` smooth, copy/paste, undo/redo), axis editing, a
-software-rendered 3D surface, gauges, datalog view, tune load/save, and a
-fixed demo connection. The simulated engine and the torque pages follow in
-Phases 3–4.
+`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 3 of
+[docs/tuning-app-plan.md](docs/tuning-app-plan.md): heat-map table editor
+with live cursor and full keyboard editing, axis editing, software-rendered
+3D surface, gauges, live datalog with recording, tune load/save and burn,
+and a **simulated engine and ZF 8HP driveline** driven by a virtual pedal in
+road or dyno mode. **Simulator → Live Powertrain** opens the SCADA-style
+mimic diagram: a cylinder cutaway running the cycle in slow motion with spark
+timing and mixture, and the 8HP with its five shift elements filling with
+pressure. The shift coordinator exercise in `tools/shift/` runs inside the
+simulator on every shift. The torque pages follow in Phase 4.
 
 ## Reference target
 

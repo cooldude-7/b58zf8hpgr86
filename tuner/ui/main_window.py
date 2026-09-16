@@ -10,11 +10,16 @@ from PySide6.QtWidgets import (QDockWidget, QFileDialog, QLabel, QMainWindow,
 from tqmodel.synth import generate
 from tqmodel.units import kpa_abs_to_boost_psi
 from .. import APP_NAME, APP_VERSION, ORG_NAME
+import time
+
 from ..core.connection import DemoConnection
+from ..core.sim_ecu import SimulatedECU
 from ..core.tune import Tune, default_tune
 from .datalog_view import DatalogView
 from .gauges import GaugePanel
-from .nav_tree import NavTree
+from .mimic import MimicPage
+from .nav_tree import TREE, NavTree
+from .sim_dock import SimulatorDock
 from .settings_page import PlaceholderPage, SettingsPage
 from .table_editor import TableEditor
 
@@ -49,7 +54,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.persist_layout = persist_layout
         self.tune = tune or default_tune()
-        self.conn = DemoConnection()
+        self.sim = SimulatedECU(self.tune)
+        self.demo = DemoConnection()
+        self.conn = self.sim
+        self._t0 = time.monotonic()
         self.editors = {}           # key -> widget
         self.boost_psi = True
 
@@ -66,8 +74,9 @@ class MainWindow(QMainWindow):
         self._build_central()
         self._build_statusbar()
 
-        self.conn.state_changed.connect(self._on_conn_state)
-        self.conn.channels_updated.connect(self._on_channels)
+        for c in (self.sim, self.demo):
+            c.state_changed.connect(self._on_conn_state)
+            c.channels_updated.connect(self._on_channels)
         self._on_conn_state(False)
         self._refresh_title()
 
@@ -118,6 +127,11 @@ class MainWindow(QMainWindow):
         self.a_view3d = ed_action("Show &3D Surface", "show_3d")
         self.a_view2d = ed_action("Show &Table", "show_2d")
 
+        self.a_conn_sim = A("&Simulated engine", self, checkable=True, checked=True)
+        self.a_conn_demo = A("&Demo point", self, checkable=True)
+        self.a_conn_sim.triggered.connect(lambda: self._set_connection(self.sim))
+        self.a_conn_demo.triggered.connect(lambda: self._set_connection(self.demo))
+
         self.a_units_psi = A("Boost in &psi", self, checkable=True, checked=True)
         self.a_units_kpa = A("MAP in &kPa", self, checkable=True)
         self.a_units_psi.triggered.connect(lambda: self._set_units(True))
@@ -138,8 +152,9 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_copy); m.addAction(self.a_paste)
 
         m = mb.addMenu("&ECU")
-        m.addAction(self.a_connect); m.addSeparator()
-        m.addAction(self.a_read); m.addAction(self.a_burn)
+        m.addAction(self.a_connect)
+        sub = m.addMenu("Connect &to"); sub.addAction(self.a_conn_sim); sub.addAction(self.a_conn_demo)
+        m.addSeparator(); m.addAction(self.a_read); m.addAction(self.a_burn)
 
         self.m_view = mb.addMenu("&View")
 
@@ -168,6 +183,12 @@ class MainWindow(QMainWindow):
         d.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
         self.addDockWidget(Qt.LeftDockWidgetArea, d); self.dock_nav = d
 
+        self.sim_dock = SimulatorDock(self.sim)
+        d = QDockWidget("Simulator", self); d.setObjectName("dock_sim")
+        d.setWidget(self.sim_dock); d.setMinimumWidth(230)
+        self.addDockWidget(Qt.LeftDockWidgetArea, d); self.dock_sim = d
+        self.splitDockWidget(self.dock_nav, self.dock_sim, Qt.Vertical)
+
         self.gauges = GaugePanel()
         d = QDockWidget("Gauges", self); d.setObjectName("dock_gauges")
         d.setWidget(self.gauges); d.setMinimumWidth(270)
@@ -178,7 +199,7 @@ class MainWindow(QMainWindow):
         d.setWidget(self.datalog); d.setMinimumHeight(180)
         self.addDockWidget(Qt.BottomDockWidgetArea, d); self.dock_log = d
 
-        for dock, glyph in ((self.dock_nav, None), (self.dock_gauges, "gauge"), (self.dock_log, "log")):
+        for dock, glyph in ((self.dock_nav, None), (self.dock_sim, None), (self.dock_gauges, "gauge"), (self.dock_log, "log")):
             a = dock.toggleViewAction()
             if glyph: a.setIcon(_glyph(glyph))
             self.m_view.addAction(a)
@@ -220,6 +241,12 @@ class MainWindow(QMainWindow):
             w.changed.connect(self._engine_changed)
         elif kind == "page" and key == "datalog":
             self.dock_log.show(); self.dock_log.raise_(); return
+        elif kind == "page" and key == "simdock":
+            self.dock_sim.show(); self.dock_sim.raise_(); return
+        elif kind == "page" and key == "mimic":
+            w = MimicPage()
+            w.maximize_toggled.connect(self.set_mimic_maximized)
+            if self.conn.is_connected(): w.update_channels(self.conn.channels())
         else:
             phase = {"torque_page": "Phase 4", "shift_cut": "Phase 4",
                      "shift_sched": "Phase 4"}.get(key, "Phase 2")
@@ -253,8 +280,27 @@ class MainWindow(QMainWindow):
         self.l_hint.setText("+ / −  bump    Ctrl  ×10    *  scale    =  set    I  interpolate    "
                             "S  smooth    Ctrl+C / V  copy, paste    Ctrl+Z  undo" if ed else "")
 
+    def set_mimic_maximized(self, on: bool):
+        if on:
+            self._docks_before = [d for d in (self.dock_gauges, self.dock_log, self.dock_sim, self.dock_nav) if d.isVisible()]
+            for d in (self.dock_gauges, self.dock_log, self.dock_nav): d.hide()
+        else:
+            for d in getattr(self, "_docks_before", []): d.show()
+        if "mimic" in self.editors: self.editors["mimic"].b_max.setChecked(on)
+
+    def open_key(self, key: str):
+        for _group, children in TREE:
+            for label, kind, k in children:
+                if k == key:
+                    self.open_item(kind, k, label); return
+
     def _y_for(self, key, ch):
-        return ch.get("map", 0.0) if key != "base_torque" else 0.9
+        t = self.tune.tables.get(key)
+        if t is None: return 0.0
+        if t.y_unit == "kPa": return ch.get("map", 0.0)
+        if t.y_unit == "%": return ch.get("tps", 0.0)
+        if t.y_unit == "g/cyl": return ch.get("air", 0.0)
+        return 0.0
 
     # ----------------------------------------------------------------- tune
     def new_tune(self):
@@ -283,6 +329,7 @@ class MainWindow(QMainWindow):
 
     def _replace_tune(self, tune: Tune):
         self.tune = tune
+        self.sim.tune = tune
         while self.tabs.count(): self._close_tab(0)
         self.editors.clear()
         self.open_item("table", "ve", "VE Table")
@@ -310,11 +357,30 @@ class MainWindow(QMainWindow):
         if self.conn.is_connected(): self.conn.disconnect_ecu()
         else: self.conn.connect_ecu()
 
+    def use_simulator(self):
+        self._set_connection(self.sim)
+
+    def _set_connection(self, conn):
+        if conn is self.conn: return
+        if self.conn.is_connected(): self.conn.disconnect_ecu()
+        self.conn = conn
+        self.a_conn_sim.setChecked(conn is self.sim); self.a_conn_demo.setChecked(conn is self.demo)
+        self.dock_sim.setVisible(conn is self.sim)
+        self._on_conn_state(False)
+
     def burn(self):
-        QMessageBox.information(self, "Burn", "Burning to the ECU arrives with the live connection (Phase 3).")
+        if self.conn is self.sim and self.conn.is_connected():
+            # the simulator runs from the live tune, like controller RAM; burn commits it
+            self.tune.clear_dirty(); self._refresh_title()
+            self.statusBar().showMessage("Burned to Simulator", 3000)
+        else:
+            QMessageBox.information(self, "Burn", "Connect to the simulated engine first.")
 
     def _on_conn_state(self, connected: bool):
+        self.a_burn.setEnabled(connected and self.conn is self.sim)
+        self.datalog.set_live(connected and self.conn is self.sim)
         if connected:
+            self._t0 = time.monotonic()
             self.l_conn.setText(f"<span style='color:#2E9E44'>●</span> Connected: {self.conn.name}")
             self.a_connect.setText("&Disconnect")
         else:
@@ -333,6 +399,11 @@ class MainWindow(QMainWindow):
         for key, w in self.editors.items():
             if isinstance(w, TableEditor):
                 w.set_cursor(ch["rpm"], self._y_for(key, ch))
+            elif isinstance(w, MimicPage):
+                w.update_channels(ch)
+        if self.conn is self.sim:
+            self.sim_dock.update_channels(ch)
+            self.datalog.append(time.monotonic() - self._t0, ch)
 
     # ----------------------------------------------------------------- misc
     def _set_units(self, psi: bool):
@@ -351,12 +422,13 @@ class MainWindow(QMainWindow):
     def about(self):
         QMessageBox.about(self, f"About {APP_NAME}",
                           f"<b>{APP_NAME}</b> {APP_VERSION}<br>Tuner application for a "
-                          f"torque-structured engine controller.<br><br>Build: Phase 2 — "
-                          f"table editing, undo, 3D surface, demo connection.")
+                          f"torque-structured engine controller.<br><br>Build: Phase 3 — "
+                          f"simulated engine and 8HP, live powertrain view.")
 
     def _default_dock_sizes(self):
         self.resizeDocks([self.dock_log], [330], Qt.Vertical)
         self.resizeDocks([self.dock_nav, self.dock_gauges], [200, 300], Qt.Horizontal)
+        self.resizeDocks([self.dock_nav, self.dock_sim], [300, 330], Qt.Vertical)
 
     def _restore_layout(self) -> bool:
         if not self.persist_layout:

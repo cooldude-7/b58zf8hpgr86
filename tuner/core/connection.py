@@ -23,6 +23,22 @@ CHANNELS = [
     ("torque_req", "Torque req", "Nm",      0),
     ("authority", "Authority",   "Nm",      0),
     ("batt",      "Battery",     "V",       1),
+    ("knock",     "Knock limit", "° BTDC",  1),
+    ("air",       "Air mass",    "g/cyl",   3),
+    ("ve",        "VE",          "",        3),
+    ("gear",      "Gear",        "",        0),
+    ("ratio",     "Ratio",       "",        3),
+    ("turbine_rpm", "Turbine",   "rpm",     0),
+    ("output_rpm", "Output",     "rpm",     0),
+    ("speed",     "Speed",       "km/h",    0),
+    ("line_bar",  "Line press.", "bar",     1),
+    ("tc_lock",   "TC lock",     "",        0),
+    ("shift_phase", "Shift phase", "",      0),
+    ("coord_phase", "Coord phase", "",      0),
+    ("shift_from", "Shift from",  "",       0),
+    ("shift_to",  "Shift to",    "",        0),
+    ("p_a", "Element A", "bar", 1), ("p_b", "Element B", "bar", 1), ("p_c", "Element C", "bar", 1),
+    ("p_d", "Element D", "bar", 1), ("p_e", "Element E", "bar", 1),
 ]
 
 

@@ -17,11 +17,13 @@ TREE = [
                 ("Friction Model", "settings", "friction"),
                 ("Pedal Map", "todo", "pedal"),
                 ("Torque Structure", "todo", "torque_page")]),
-    ("Boost", [("Boost Target", "todo", "boost"),
+    ("Boost", [("Boost Target", "table", "boost"),
                ("Wastegate", "todo", "wastegate")]),
     ("Transmission", [("Shift Schedule", "todo", "shift_sched"),
                       ("Torque Reduction", "todo", "shift_cut")]),
     ("Datalogging", [("Log Viewer", "page", "datalog")]),
+    ("Simulator", [("Live Powertrain", "page", "mimic"),
+                   ("Controls", "page", "simdock")]),
 ]
 
 

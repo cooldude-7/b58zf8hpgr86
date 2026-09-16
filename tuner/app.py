@@ -14,6 +14,10 @@ def main(argv=None):
     ap.add_argument("--demo", action="store_true", help="connect to the demo ECU on start")
     ap.add_argument("--screenshot", metavar="PNG", help="render the main window to a file and exit")
     ap.add_argument("--three-d", action="store_true", help="with --screenshot: show the 3D surface")
+    ap.add_argument("--sim", type=float, metavar="PEDAL", help="connect to the simulator with the pedal at PEDAL %%")
+    ap.add_argument("--advance", type=float, default=0.0, metavar="SEC", help="step the simulator SEC seconds first")
+    ap.add_argument("--open", metavar="KEY", help="open a navigator item, e.g. mimic")
+    ap.add_argument("--max", action="store_true", help="with --open mimic: maximize the live view")
     ap.add_argument("tune", nargs="?", help="tune file to open")
     args = ap.parse_args(argv)
 
@@ -33,8 +37,20 @@ def main(argv=None):
 
     tune = Tune.load(args.tune) if args.tune else None
     win = MainWindow(tune, persist_layout=not args.screenshot)
-    if args.demo or args.screenshot:
+    if args.sim is not None:
+        win.use_simulator()
+        win.sim.pedal = args.sim / 100.0
+        win.sim_dock.pedal.setValue(int(args.sim))
         win.conn.connect_ecu()
+        for _ in range(int(args.advance / win.sim.dt)):
+            win.sim._step()
+        win.sim.channels_updated.emit(win.sim.channels())
+    elif args.demo or args.screenshot:
+        win.conn.connect_ecu()
+    if args.open:
+        win.open_key(args.open)
+        if args.max and args.open == "mimic":
+            win.set_mimic_maximized(True)
     if args.three_d and "ve" in win.editors:
         win.editors["ve"].show_3d()
     win.show()

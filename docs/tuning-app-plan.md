@@ -1,6 +1,6 @@
 # Tuning Application — Plan
 
-**Status: Phases 1–2 built (`tuner/`), Phases 3–5 pending.** This is the plan for the tuner-facing
+**Status: Phases 1–3 built (`tuner/`), plus the live powertrain view. Phases 4–5 pending.** This is the plan for the tuner-facing
 Windows application: the thing a tuner opens, connects to the ECU with, and
 edits tables in.
 
@@ -131,6 +131,45 @@ The classic dialog look. Engine constants, injector data, trigger, units.
   datalog. A checkbox reproduces the air-chase bug live. If the coordinator
   exercise is still placeholders, Test Shift does nothing visible — a decent
   incentive.
+
+### Live powertrain view — the mimic diagram
+
+A SCADA/HMI-style process graphic (the industrial term is a *mimic diagram*)
+showing the simulation running, opened from Simulator → Live Powertrain.
+Light background, line-art equipment, value tags in bordered boxes, status
+LEDs — the look of Ignition or WinCC rather than a game.
+
+- **Cylinder cutaway.** One cylinder in section running the four-stroke cycle
+  in slow motion (a few seconds per cycle, scaled with RPM). Valves lift, the
+  charge is tinted by density and lambda, the spark flashes at the commanded
+  angle, a flame front grows from the plug, burned gas fades and is pushed out.
+  A crank-angle dial shows TDC, the MBT arc in green and any retard from MBT in
+  red; a small pressure-vs-crank trace shows where the peak lands. Tags: RPM,
+  boost, MAP, air, VE, lambda, spark, MBT, knock limit, torque, request,
+  authority, and a TORQUE CUT LED.
+- **ZF 8HP schematic.** Converter with lock-up LED, the four gearsets, and the
+  five shift elements (A, B brakes; C, D, E clutches) as plate packs. Each has
+  a hollow arrow that fills with apply pressure and a tag with bar and Nm.
+  During a shift the two exchanging elements are outlined and the arrows trade
+  fill. A matrix shows which three elements are applied in each gear with the
+  current gear lit. Header tags: gear and ratio, input/turbine/output rpm,
+  speed, line pressure, torque in, torque requested, shift phase, cut phase.
+- **Maximize** hides the other docks so the graphics get the window.
+
+Values come from the connected ECU; the page computes nothing. The simulator
+publishes the element pressures and shift phases it models.
+
+### Simulator
+
+`tuner/core/sim_ecu.py`. Reads the live tune every step, so editing a table
+changes the engine; Burn commits the dirty markers. Road mode drives a GR86-mass
+car through an 8HP with a torque converter (absorption ∝ rpm², multiplication
+1.6 at stall, lock-up above 1400 rpm near coupling), a pedal-dependent shift
+schedule, and clutch-to-clutch shifts with fill, torque and inertia phases.
+Dyno mode holds an RPM setpoint. The shift coordinator from `tools/shift/` is
+called on every shift; its retard is applied and its air-freeze rule is
+enforced by the simulator inside its own shift window, so an unfinished
+coordinator cannot wedge the air path. A checkbox reproduces the air-chase bug.
 
 ## Theme
 

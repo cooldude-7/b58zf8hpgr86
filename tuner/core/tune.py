@@ -87,7 +87,15 @@ def default_tune() -> Tune:
     A, R2 = np.meshgrid(AIR_AXIS, RPM_AXIS)          # (n_rpm, n_air)
     bt = base_torque(A, R2, eng).T                   # -> (n_air, n_rpm)
 
+    # boost target by rpm and throttle, in psi gauge: nothing until the turbo
+    # has exhaust energy, a plateau in the mid range, tapering up top
+    TPS_AXIS = np.array([0.0, 40.0, 70.0, 100.0])
+    rpm_curve = np.interp(RPM_AXIS, [800, 2000, 3000, 4500, 6000, 7500], [0, 2, 14, 16, 15, 12])
+    boost = np.vstack([rpm_curve * f for f in (0.0, 0.15, 0.6, 1.0)])
+
     tables = {
+        "boost": Table("boost", "Boost Target", "RPM", "rpm", "Throttle", "%",
+                       RPM_AXIS, TPS_AXIS, boost, unit="psi", fmt="{:.1f}", step=0.5),
         "ve": Table("ve", "VE Table", "RPM", "rpm", "MAP", "kPa",
                     RPM_AXIS, MAP_AXIS, ve, unit="", fmt="{:.3f}", step=0.005),
         "mbt": Table("mbt", "MBT Spark", "RPM", "rpm", "MAP", "kPa",
@@ -107,5 +115,8 @@ def default_tune() -> Tune:
         "injector_flow_cc_min": 1050.0, "injector_deadtime_ms": 0.90,
         "fuel_pressure_kpa": 350.0, "rev_limit": 7200,
         "chen_flynn": [eng.cf_a, eng.cf_b, eng.cf_c, eng.cf_d],
+        # driveline, for the simulator: GR86 mass, a taller final drive to
+        # suit the 8HP's spread, 215/45R17
+        "final_drive": 3.46, "tire_radius_m": 0.318, "vehicle_mass_kg": 1400.0,
     }
     return Tune(name="B48 base", engine=engine, tables=tables)
