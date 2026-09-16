@@ -50,6 +50,20 @@ has. See
 | [docs/hardware.md](docs/hardware.md) | MCU selection, GDI power stage, I/O budget, per-module sketches |
 | [docs/roadmap.md](docs/roadmap.md) | Staged milestones with exit criteria |
 
+## Running the tuner application
+
+```bash
+pip install -e .            # once; installs PySide6, pyqtgraph, numpy, matplotlib
+python -m tuner --demo      # start connected to the demo ECU
+```
+
+Windows executable: run `packaging\build.bat` from the repo root, then
+`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 1 of
+[docs/tuning-app-plan.md](docs/tuning-app-plan.md): layout, table editor with
+heat-map and live cursor, gauges, datalog view, tune load/save, and a fixed
+demo connection. Table keyboard operations, the simulated engine and the
+torque pages follow in Phases 2–4.
+
 ## Reference target
 
 First integration target is a **BMW B48 + ZF8HP in a GR86/ZN6 chassis** — the

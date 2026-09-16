@@ -1,6 +1,6 @@
 # Tuning Application — Plan
 
-**Status: proposed. Nothing built yet.** This is the plan for the tuner-facing
+**Status: Phase 1 built (`tuner/`), Phases 2–5 pending.** This is the plan for the tuner-facing
 Windows application: the thing a tuner opens, connects to the ECU with, and
 edits tables in.
 

@@ -1,0 +1,52 @@
+"""Left-hand navigation tree."""
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+
+# (group, [(label, kind, key)])   kinds: table, settings, page, curve, todo
+TREE = [
+    ("Engine Setup", [("Engine Constants", "settings", "engine"),
+                      ("Injectors", "settings", "injectors"),
+                      ("Trigger / Sensors", "todo", "trigger")]),
+    ("Fuel", [("VE Table", "table", "ve"),
+              ("Lambda Target", "table", "lambda"),
+              ("Acceleration Enrichment", "todo", "accel")]),
+    ("Ignition", [("MBT Spark", "table", "mbt"),
+                  ("Knock Limit", "table", "knock"),
+                  ("Spark Efficiency Curve", "todo", "spark_eff")]),
+    ("Torque", [("Base Torque", "table", "base_torque"),
+                ("Friction Model", "settings", "friction"),
+                ("Pedal Map", "todo", "pedal"),
+                ("Torque Structure", "todo", "torque_page")]),
+    ("Boost", [("Boost Target", "todo", "boost"),
+               ("Wastegate", "todo", "wastegate")]),
+    ("Transmission", [("Shift Schedule", "todo", "shift_sched"),
+                      ("Torque Reduction", "todo", "shift_cut")]),
+    ("Datalogging", [("Log Viewer", "page", "datalog")]),
+]
+
+
+class NavTree(QTreeWidget):
+    activated_item = Signal(str, str, str)      # kind, key, label
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setIndentation(14)
+        self.setRootIsDecorated(True)
+        for group, children in TREE:
+            g = QTreeWidgetItem([group])
+            g.setFlags(g.flags() & ~Qt.ItemIsSelectable)
+            f = g.font(0); f.setBold(True); g.setFont(0, f)
+            for label, kind, key in children:
+                c = QTreeWidgetItem([label])
+                c.setData(0, Qt.UserRole, (kind, key, label))
+                g.addChild(c)
+            self.addTopLevelItem(g)
+        self.expandAll()
+        self.itemClicked.connect(self._clicked)
+        self.itemActivated.connect(self._clicked)
+
+    def _clicked(self, item, col):
+        d = item.data(0, Qt.UserRole)
+        if d:
+            self.activated_item.emit(*d)

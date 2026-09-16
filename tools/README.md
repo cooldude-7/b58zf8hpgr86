@@ -1,6 +1,6 @@
 # Analysis toolkit
 
-Offline Python implementation of the torque model, for validating against
+Offline analysis scripts for the torque model (which now lives in `tqmodel/` at the repo root), for validating against
 logged data before any of it reaches firmware.
 
 Not a MATLAB replacement in general — just the parts this project needs.
@@ -55,12 +55,12 @@ Press **F5** in VS Code to run either entry point; both are in
 
 | Module | Purpose |
 |---|---|
-| `model.py` | Forward and inverse torque model, plus `authority()` |
-| `ve.py` | Back-calculate VE from logged pulse width and lambda (VE autotune) |
-| `dynamics.py` | Manifold filling ODE — the transient correction the steady-state VE equation lacks |
-| `plots.py` | The validation plots that earn their keep |
-| `units.py` | kPa absolute ↔ boost psi, Nm ↔ lb-ft |
-| `synth.py` | Synthetic log generator, so this runs before Phase 0 exists |
+| `tqmodel/model.py` | Forward and inverse torque model, plus `authority()` |
+| `tqmodel/ve.py` | Back-calculate VE from logged pulse width and lambda (VE autotune) |
+| `tqmodel/dynamics.py` | Manifold filling ODE — the transient correction the steady-state VE equation lacks |
+| `tqmodel/plots.py` | The validation plots that earn their keep |
+| `tqmodel/units.py` | kPa absolute ↔ boost psi, Nm ↔ lb-ft |
+| `tqmodel/synth.py` | Synthetic log generator, so this runs before Phase 0 exists |
 | `explore.py` | Cell-based exploration for VS Code |
 | `playground.py` | Interactive sliders |
 
@@ -87,7 +87,7 @@ per cylinder per cycle**; torque in **Nm**; **lambda**, not AFR.
 
 ## Replacing the synthetic data
 
-`synth.py` exists only because Phase 0 has not happened. Swap it for real DME
+`tqmodel/synth.py` exists only because Phase 0 has not happened. Swap it for real DME
 logs and nothing downstream changes — the demo's structure is the real
 workflow.
 

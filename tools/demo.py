@@ -6,7 +6,7 @@ something real to find -- which is the whole point of the technique.
     python3 tools/demo.py [outdir]
 """
 import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import matplotlib
 matplotlib.use("Agg")          # demo writes PNGs, never opens a window
