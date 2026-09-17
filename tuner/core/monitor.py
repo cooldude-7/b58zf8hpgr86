@@ -32,6 +32,13 @@ TPS_TRACKING_PCT = 15.0         # commanded vs measured throttle
 DEBOUNCE_S = 0.10               # a fault must persist this long to act
 TORQUE_MARGIN_NM = 30.0         # permissible torque headroom before limp
 TORQUE_DEBOUNCE_S = 0.20
+# How fast permissible torque is allowed to FALL. Lifting off drops the
+# pedal in milliseconds, but the engine cannot dump the air already in
+# the manifold, so torque decays over a few hundred milliseconds. A
+# monitor that expects torque to vanish with the pedal limps the car on
+# every throttle lift. Rising is not lagged: more pedal is permitted at
+# once.
+PERMISSIBLE_FALL_TAU_S = 0.30
 
 
 class Monitor:
@@ -86,7 +93,13 @@ class Monitor:
 
         # With a pedal fault the lower of the two tracks is the safe read.
         pedal = min(pedal_a, pedal_b) if self._t_pedal > DEBOUNCE_S else pedal_a
-        self.permissible = self.permissible_torque(pedal, rpm, max_torque)
+        target = self.permissible_torque(pedal, rpm, max_torque)
+        if target >= self.permissible:
+            self.permissible = target          # more pedal: allowed at once
+        else:
+            # falling: no faster than the air path can actually follow
+            k = min(dt / PERMISSIBLE_FALL_TAU_S, 1.0)
+            self.permissible += (target - self.permissible) * k
         over = torque > self.permissible + TORQUE_MARGIN_NM
         self._t_torque = self._t_torque + dt if over else 0.0
 

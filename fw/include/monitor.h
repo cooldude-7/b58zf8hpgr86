@@ -26,6 +26,7 @@ enum {
 #define MON_DEBOUNCE_S 0.10f
 #define MON_TORQUE_MARGIN_NM 30.0f
 #define MON_TORQUE_DEBOUNCE_S 0.20f
+#define MON_PERMISSIBLE_FALL_TAU_S 0.30f
 
 typedef struct {
     mon_limp_t limp;

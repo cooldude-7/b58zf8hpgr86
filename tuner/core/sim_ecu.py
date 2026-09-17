@@ -279,6 +279,8 @@ class SimulatedECU(ECUConnection):
 
     # ---- shifting ---------------------------------------------------------------
     def _start_shift(self, new_gear):
+        # any shift that actually starts clears a stale inhibit marker
+        self.shift_inhibit = 0.0
         self.shift = dict(t=0.0, old=self.gear, new=new_gear)
         self.frozen = self._last_targets
         if self.coord is not None:
@@ -529,10 +531,14 @@ class SimulatedECU(ECUConnection):
             self.v = max(self.v + a * dt, 0.0)
             if not self.shift and self.v > 2.0:
                 up, down = 2200.0 + 4800.0 * pedal, 1400.0 + 2100.0 * pedal
+                # Through request_shift, not straight to _start_shift:
+                # an automatic downshift can put the engine past its
+                # limit just as easily as a manual one, and the guard
+                # belongs on both paths or neither.
                 if self.gear < 8 and turbine > up:
-                    self._start_shift(self.gear + 1)
+                    self.request_shift(True)
                 elif self.gear > 1 and turbine < down:
-                    self._start_shift(self.gear - 1)
+                    self.request_shift(False)
 
         # ---- shift element pressures ---------------------------------------------
         line = 4.0 + 14.0 * min(max(t_brake / 450.0, 0.0), 1.0)

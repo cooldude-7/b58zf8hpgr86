@@ -234,3 +234,63 @@ def test_a_coordinator_cannot_wedge_the_air_path(sim):
         sim._step()
     assert sim.shift is None, "the shift never ended"
     assert sim.channels()["cut_deg"] < 1.0, "spark is still cut after the shift"
+
+
+# ---- the monitor must not punish ordinary driving -------------------------
+def test_lifting_off_does_not_limp_the_car(sim):
+    """A pedal lift is instant; the manifold emptying is not. The engine
+    keeps making torque for a few hundred milliseconds after the driver
+    backs off, and a monitor that expects torque to vanish with the pedal
+    limps the car every single time."""
+    sim.pedal = 0.9
+    for _ in range(700):
+        sim._step()
+    sim.pedal = 0.1
+    for _ in range(300):
+        sim._step()
+    ch = sim.channels()
+    assert ch["limp_level"] == 0, (
+        f"limped on a throttle lift: fault {ch['fault_code']:.0f}, "
+        f"torque {ch['torque']:.0f} vs permissible {ch['torque_permissible']:.0f}")
+
+
+def test_a_long_mixed_drive_never_limps(sim):
+    for i in range(4000):
+        sim.pedal = 0.9 if (i // 700) % 2 == 0 else 0.1
+        sim._step()
+    assert sim.monitor.limp == 0, f"limped during normal driving: {sim.monitor.faults}"
+    assert sim.step_error is None
+
+
+def test_sustained_unrequested_torque_is_still_caught():
+    """The lag must not make the monitor blind. Torque that stays up
+    with the pedal down is still a fault, just a little later."""
+    m = Monitor()
+    limp = OK
+    for _ in range(300):
+        limp, _ = m.update(0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 390.0, 3000.0,
+                           400.0, 7200.0, 150.0, 265.0)
+    assert limp >= IDLE_ONLY
+    assert m.fault == F_TORQUE_EXCEEDS_PERMISSIBLE
+
+
+def test_an_automatic_downshift_is_guarded_too(sim):
+    """The guard was only on the manual path. An automatic downshift can
+    put the engine past its limit just as easily."""
+    sim.v = 90.0
+    sim.gear = 2
+    sim.pedal = 0.0
+    sim.request_shift(False)
+    assert sim.shift is None
+    assert sim.shift_inhibit == 1.0
+
+
+def test_the_inhibit_marker_does_not_latch_forever(sim):
+    sim.v = 90.0
+    sim.gear = 2
+    sim.request_shift(False)
+    assert sim.shift_inhibit == 1.0
+    sim.v = 12.0
+    sim.request_shift(False)
+    assert sim.shift is not None
+    assert sim.shift_inhibit == 0.0

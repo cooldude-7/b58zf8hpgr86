@@ -46,7 +46,18 @@ mon_limp_t tq_monitor_update(tq_monitor_t *m, const mon_inputs_t *in)
     if (m->t_pedal > MON_DEBOUNCE_S) {
         pedal = in->pedal_a < in->pedal_b ? in->pedal_a : in->pedal_b;
     }
-    m->permissible = permissible_torque(pedal, in->rpm, in->max_torque);
+    /* Permissible torque may rise at once but must fall no faster than
+     * the air path can follow. See tuner/core/monitor.py: a pedal lift is
+     * instant, the manifold emptying is not, and a monitor that ignores
+     * that limps the car every time the driver backs off. */
+    f32 target = permissible_torque(pedal, in->rpm, in->max_torque);
+    if (target >= m->permissible) {
+        m->permissible = target;
+    } else {
+        f32 k = in->dt / MON_PERMISSIBLE_FALL_TAU_S;
+        if (k > 1.0f) k = 1.0f;
+        m->permissible += (target - m->permissible) * k;
+    }
     bool over = in->torque > m->permissible + MON_TORQUE_MARGIN_NM;
     m->t_torque = over ? m->t_torque + in->dt : 0.0f;
 
