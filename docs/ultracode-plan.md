@@ -1,6 +1,7 @@
 # Plan: from simulator to a real-car ECU
 
-Status: proposed, awaiting approval. Nothing below is built yet.
+Status: Phases A to D built and tested on the host. Phase E needs
+hardware. See "What is done" below.
 
 Source: a 143-agent audit of the repo (6 subsystem maps, 8 adversarial
 lenses, 3 independent refuters per critical/high finding). 46 findings
@@ -35,6 +36,30 @@ What needs hardware, a bench, and then a dyno:
 
 What software cannot achieve alone: a car that runs. This plan gets the
 code to the point where the only unknowns are electrical and calibration.
+
+## 1a. What is done
+
+Phases A, B, C and D are implemented and under test: 145 Python tests and
+six C suites, all passing in CI.
+
+- **A.** Table and tune validation, physical bounds, split save/burn
+  state with three per-cell baselines, the full connection protocol with
+  CRC-verified burn, armed live write, a fixed frozen-executable entry
+  point, pytest and CI.
+- **B.** A truth plant distinct from the tune, a real fuel path, measured
+  lambda as a consequence of the VE table, a knock model, and the
+  coordinator's air request driving the air path.
+- **C.** The Level 2 torque monitor, overboost and over-rev protection,
+  and the shift coordinator treated as untrusted code.
+- **D.** `fw/`: HAL interface, crank and cam decoder, angle-domain
+  scheduler, torque model cross-checked against the Python to 1e-4, fuel
+  and pump path, monitor port, and the four-rate task structure. Host
+  build and tests in CI.
+
+Not done, and needing hardware: the STM32H7 HAL, the serial or CAN
+transport between tuner and ECU, and the trigger settings page. The B48
+trigger patterns in `decoder_config_b48()` are placeholders until someone
+scopes them.
 
 ## 2. Phases
 
