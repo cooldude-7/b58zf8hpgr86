@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
 # (group, [(label, kind, key)])   kinds: table, settings, page, curve, todo
 TREE = [
+    ("TQ-101 Course", [("Labs and progress", "course", "course")]),
     ("Engine Setup", [("Engine Constants", "settings", "engine"),
                       ("Injectors", "settings", "injectors"),
                       ("Trigger / Sensors", "settings", "trigger")]),

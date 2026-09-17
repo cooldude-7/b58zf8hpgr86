@@ -91,6 +91,16 @@ each phase produces something independently useful and testable, and so the
 reference car is driving on its factory DME the entire time rather than sitting
 on jackstands waiting for the platform to mature.
 
+## Learning to use it
+
+`docs/course/` is TQ-101, a fifteen session course on engine
+calibration built around this application: four parts on combustion,
+the control problem, calibration practice and integration, with six
+labs marked inside the app against the simulator's hidden plant.
+
+Open **TQ-101 Course** in the navigator, press **Load the course
+tune**, and press **Mark everything** to see where you stand.
+
 ## Firmware
 
 `fw/` holds the C that runs the engine: crank and cam decoder,

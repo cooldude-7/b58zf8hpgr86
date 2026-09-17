@@ -295,6 +295,10 @@ class MainWindow(QMainWindow):
             if self.conn.is_connected():
                 ch = self.conn.channels()
                 w.set_cursor(ch["rpm"], self._y_for(key, ch))
+        elif kind == "course":
+            from .course_page import CoursePage
+            w = CoursePage(lambda: self.tune, lambda: self.sim)
+            w.load_student_tune.connect(self._load_course_tune)
         elif kind == "settings":
             w = SettingsPage(key, self.tune.engine)
             w.changed.connect(self._engine_changed)
@@ -407,6 +411,20 @@ class MainWindow(QMainWindow):
         self.editors.clear()
         self.open_item("table", "ve", "VE Table")
         self._refresh_title()
+
+    def _load_course_tune(self):
+        """Swap in the deliberately flawed tune the course starts from."""
+        from ..core.course import student_tune
+        if not self._confirm_discard():
+            return
+        self._replace_tune(student_tune())
+        # _replace_tune closes every tab, including the Course page the
+        # button was pressed on. Put it back, or the page vanishes the
+        # moment it is used.
+        self.open_key("course")
+        self.statusBar().showMessage(
+            "TQ-101 starting tune loaded. Open the Course page and mark "
+            "Lab 1 to see where it stands.", 8000)
 
     def _confirm_discard(self) -> bool:
         # the question is whether work would be LOST, which is the file
