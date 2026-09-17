@@ -62,10 +62,18 @@ firmware as a subprocess and drives it down a pipe, so the burn CRC is
 checked across the actual boundary rather than against an imitation of
 it. Trigger and safety settings pages exist and write to the tune.
 
+Direct injection is in: multi-pulse scheduling, the injector current
+profile with its boost recharge constraint, angle-scheduled pump valve
+control, and rail pressure target, injection timing and pilot fraction
+tables. The simulator models rail droop when the pump runs out of
+capacity, which is the failure that leans an engine out at full load.
+
 Not done, and needing hardware: the STM32H7 HAL (`fw/hal/hal_stm32h7.c`
 documents the peripheral plan and refuses to build), and the physical
-port picker in the tuner. The B48 trigger numbers are placeholders until
-someone scopes them, and the trigger settings page says so on its face.
+port picker in the tuner. The B48 trigger numbers, the injector drive
+profile and the pump lobe geometry are placeholders until someone scopes
+them and reads the data sheets; the trigger and direct injection pages
+both say so on their face.
 
 ## 2. Phases
 
