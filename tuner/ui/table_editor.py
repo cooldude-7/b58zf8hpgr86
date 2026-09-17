@@ -76,6 +76,12 @@ class TableModel(QAbstractTableModel):
             return int(Qt.AlignCenter)
         if role == Qt.FontRole and self.table.dirty[j, i]:
             f = QFont(); f.setBold(True); return f
+        if role == Qt.ToolTipRole:
+            st = self.table.state()[j, i]
+            return {Table.LOCAL: "Edited here. Not in the ECU yet: "
+                                 "F4 sends it, F5 sends and burns it.",
+                    Table.RAM: "In ECU RAM. Lost on key-off until you burn (F5).",
+                    Table.FLASH: "Committed to the ECU."}[int(st)]
         return None
 
     def setData(self, index, value, role=Qt.EditRole):
@@ -146,9 +152,15 @@ class HeatDelegate(QStyledItemDelegate):
         j, i = model.ji(index)
         r = option.rect
 
-        if model.table.dirty[j, i]:
+        # Three states, three markers, because "edited" and "in the
+        # engine" are different facts and a tuner has to be able to tell
+        # them apart at a glance. Red means the ECU has never seen this
+        # number; amber means it is in RAM and will be lost on key-off.
+        state = model.table.state()[j, i]
+        if state != Table.FLASH:
             painter.save()
-            painter.setPen(Qt.NoPen); painter.setBrush(QColor("#C00000"))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#C00000" if state == Table.LOCAL else "#D08A00"))
             painter.drawPolygon(QPolygon([QPoint(r.right() - 6, r.top() + 1),
                                           QPoint(r.right(), r.top() + 1),
                                           QPoint(r.right(), r.top() + 7)]))

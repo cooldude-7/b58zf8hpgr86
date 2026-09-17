@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
 
         for c in (self.sim, self.demo):
             c.state_changed.connect(self._on_conn_state)
+            c.error.connect(self._on_conn_error)
             c.channels_updated.connect(self._on_channels)
         self._on_conn_state(False)
         self._refresh_title()
@@ -370,9 +371,21 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open Tune", "", "Tune files (*.tune);;All files (*)")
         if path:
             try:
-                self._replace_tune(Tune.load(path))
+                tune = Tune.load(path)
             except Exception as e:
                 QMessageBox.critical(self, "Open Tune", f"Could not open tune:\n{e}")
+                return
+            self._replace_tune(tune)
+            if tune.upgraded:
+                # Safety limits among them, so this is said out loud
+                # rather than applied quietly behind the tuner's back.
+                QMessageBox.information(
+                    self, "Open Tune",
+                    "This tune was saved by an older version and did not "
+                    "contain:\n\n  " + "\n  ".join(tune.upgraded) +
+                    "\n\nDefaults have been filled in. Check them under "
+                    "Engine Setup and Safety before running the engine, then "
+                    "save the tune.")
 
     def save_tune(self):
         if self.tune.path is None:
@@ -453,9 +466,18 @@ class MainWindow(QMainWindow):
         changed = on != self.armed
         self.armed = on
         self.a_arm.setChecked(self.armed)
-        self._status(self.l_arm,
-                     "<span style='color:#A00000'><b>LIVE WRITE ARMED</b></span>"
-                     if self.armed else "")
+        # Blank is the wrong way to say "off". A tuner whose edits are
+        # not reaching the engine needs to be told that, not left to
+        # discover it by watching nothing happen.
+        if self.armed:
+            self._status(self.l_arm,
+                         "<span style='color:#A00000'><b>LIVE WRITE ARMED</b></span>")
+        elif self.conn.is_connected() and self.conn.writable:
+            self._status(self.l_arm,
+                         "<span style='color:#666666'>Live write off "
+                         "(F4 send, F5 burn)</span>")
+        else:
+            self._status(self.l_arm, "")
         # Only say so when it actually changed. Disarming something that
         # was never armed is not news, and at start-up it puts a
         # temporary message over the status bar for no reason.
@@ -545,14 +567,24 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"ECU refused the write: {e}", 6000)
         self._refresh_title()
 
+    def _on_conn_error(self, message: str):
+        """Something stopped the ECU talking. Say so loudly: the previous
+        behaviour was for the simulation to stop and the screen to look
+        exactly as if the engine were idling."""
+        self.statusBar().showMessage(message, 0)
+        self._status(self.l_conn,
+                     f"<span style='color:#A00000'>●</span> {message}")
+        QMessageBox.critical(self, APP_NAME, message)
+
     def _on_conn_state(self, connected: bool):
         writable = connected and self.conn.writable
         self.a_burn.setEnabled(writable)
         self.a_send.setEnabled(writable)
         self.a_arm.setEnabled(writable)
         self.a_read.setEnabled(connected)
-        if not writable:
-            self.set_armed(False)
+        # Re-run either way: the indicator has to appear when a writable
+        # ECU connects, not only when the arming changes.
+        self.set_armed(self.armed and writable)
         self.datalog.set_live(connected and self.conn is self.sim)
         if connected:
             self._t0 = time.monotonic()

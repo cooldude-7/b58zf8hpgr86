@@ -226,3 +226,79 @@ def test_disarming_something_never_armed_says_nothing(qapp):
         w.conn.disconnect_ecu()
         w.tune.mark_saved()
         w.close()
+
+
+# ---- regressions: the app must explain itself ----------------------------
+def test_an_unarmed_edit_is_marked_differently_from_a_sent_one(win):
+    """An edit that has not reached the engine used to look identical to
+    one that had, which made a correctly working tuner look like a dead
+    simulator."""
+    from tuner.core.table import Table
+
+    t = win.tune.tables["ve"]
+    assert t.state()[0, 0] == Table.FLASH
+    edit(win, value=0.61)
+    assert t.state()[0, 0] == Table.LOCAL
+    win.set_armed(True)
+    edit(win, j=0, i=1, value=0.62)
+    assert t.state()[0, 1] == Table.RAM
+    win.burn()
+    assert (t.state() == Table.FLASH).all()
+
+
+def test_the_live_write_state_is_always_visible_when_connected(win):
+    """Blank is the wrong way to say off. Without this the tuner has no
+    way to know why edits are not reaching the engine."""
+    win.set_armed(False)
+    assert win.l_arm.text(), "no indication that live write is off"
+    assert "off" in win.l_arm.text().lower()
+    win.set_armed(True)
+    assert "armed" in win.l_arm.text().lower()
+
+
+def test_a_connection_error_is_reported_not_swallowed(win, monkeypatch):
+    """The simulator stops its timer when a step raises. If nothing is
+    listening, the screen looks exactly like an idling engine."""
+    from PySide6.QtWidgets import QMessageBox
+
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical",
+                        lambda *a, **k: shown.append(a[2] if len(a) > 2 else a))
+    win.conn.error.emit("Simulation stopped: something went wrong")
+    assert shown, "a connection error reached nobody"
+    assert "stopped" in win.statusBar().currentMessage().lower()
+
+
+def test_a_tune_from_an_older_version_still_loads(tmp_path, tune):
+    """Adding required scalars must not make every saved tune
+    disposable. They are filled from the defaults and named."""
+    import json
+
+    from tuner.core.tune import Tune
+
+    p = tmp_path / "old.tune"
+    tune.save(p)
+    d = json.loads(p.read_text())
+    for k in ("boost_max_kpa", "overboost_cut_kpa", "max_cut_retard",
+              "trigger_teeth", "dwell_ms"):
+        d["engine"].pop(k, None)
+    p.write_text(json.dumps(d))
+
+    back = Tune.load(p)
+    assert "boost_max_kpa" in back.upgraded
+    assert back.engine["boost_max_kpa"] > 0
+    assert back.file_dirty, "the upgrade was not flagged for saving"
+
+
+def test_a_genuinely_broken_tune_is_still_refused(tmp_path, tune):
+    import json
+
+    from tuner.core.tune import Tune, TuneError
+
+    p = tmp_path / "bad.tune"
+    tune.save(p)
+    d = json.loads(p.read_text())
+    d["engine"]["rev_limit"] = 99000
+    p.write_text(json.dumps(d))
+    with pytest.raises(TuneError):
+        Tune.load(p)

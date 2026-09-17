@@ -63,6 +63,10 @@ class Tune:
     path: Path | None = None
     engine_unsaved: bool = False
     engine_unburned: bool = False
+    # Engine scalars that were absent from the file and filled from the
+    # defaults on load. Reported to the user rather than applied quietly,
+    # because some of them are safety limits.
+    upgraded: list = field(default_factory=list)
 
     # -- state ----------------------------------------------------------
     # Two independent questions, and conflating them loses work: "does this
@@ -167,8 +171,24 @@ class Tune:
                 tables[k] = Table.from_dict(v)
             except TableError as e:
                 raise TuneError(str(e)) from None
-        t = cls(name=str(d["name"]), engine=d["engine"], tables=tables, path=path)
-        return t.validate()
+        # A tune written by an older version will not have scalars that
+        # were added since. Refusing it outright makes every saved tune
+        # disposable on upgrade, so the missing ones are filled from the
+        # defaults and named, and the file is still checked afterwards.
+        engine = dict(d["engine"])
+        defaults = default_engine()
+        upgraded = []
+        for name in list(ENGINE_LIMITS) + ["chen_flynn"]:
+            if name not in engine and name in defaults:
+                engine[name] = defaults[name]
+                upgraded.append(name)
+        t = cls(name=str(d["name"]), engine=engine, tables=tables, path=path,
+                upgraded=upgraded)
+        t.validate()
+        if upgraded:
+            # the file on disk does not have these yet
+            t.engine_unsaved = True
+        return t
 
 
 def _no_constants(token):
@@ -221,7 +241,13 @@ def default_tune() -> Tune:
                              "Air mass", "g/cyl", RPM_AXIS, AIR_AXIS, bt,
                              unit="Nm", fmt="{:.0f}", step=1.0, lo=LIMITS["base_torque"][0], hi=LIMITS["base_torque"][1]),
     }
-    engine = {
+    engine = default_engine(eng)
+    return Tune(name="B48 base", engine=engine, tables=tables).validate()
+
+
+def default_engine(eng=None) -> dict:
+    eng = eng or Engine()
+    return {
         "n_cyl": eng.n_cyl, "displacement_l": eng.displacement_l,
         "compression_ratio": eng.compression_ratio,
         "afr_stoich": eng.afr_stoich, "stroke_m": eng.stroke_m,
@@ -242,4 +268,3 @@ def default_tune() -> Tune:
         "cam_edge_angle_deg": 90.0, "cam_tolerance_deg": 25.0,
         "dwell_ms": 2.5, "soi_btdc_deg": 300.0,
     }
-    return Tune(name="B48 base", engine=engine, tables=tables).validate()
