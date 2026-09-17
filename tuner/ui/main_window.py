@@ -3,9 +3,10 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt
-from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QFontMetrics, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QStyle, QTabWidget, QToolBar)
+                               QHBoxLayout, QMessageBox, QSizePolicy, QStyle,
+                               QTabWidget, QToolBar, QWidget)
 
 from tqmodel.synth import generate
 from tqmodel.units import kpa_abs_to_boost_psi
@@ -48,6 +49,33 @@ def _glyph(kind: str) -> QIcon:
                         for xy in ((1, 12), (4, 6), (7, 10), (10, 3), (13, 8), (15, 6))])
     p.end()
     return QIcon(pm)
+
+
+class _ElidedLabel(QLabel):
+    """A label that shortens its text with an ellipsis instead of having
+    it cut off mid-word. Used for the keyboard hint, which is the one
+    piece of status text allowed to lose its tail when space runs out."""
+
+    def setText(self, text):
+        self._full = text
+        super().setText(text)
+
+    def minimumSizeHint(self):
+        h = super().minimumSizeHint()
+        h.setWidth(0)
+        return h
+
+    def paintEvent(self, ev):
+        full = getattr(self, "_full", self.text())
+        fm = QFontMetrics(self.font())
+        elided = fm.elidedText(full, Qt.ElideRight, self.width())
+        painter = QPainter(self)
+        self.style().drawItemText(
+            painter, self.rect(), int(self.alignment()), self.palette(),
+            self.isEnabled(), elided, self.foregroundRole())
+        painter.end()
+        if ev is not None:
+            ev.accept()
 
 
 class MainWindow(QMainWindow):
@@ -230,11 +258,29 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.l_conn = QLabel(); self.l_tune = QLabel(); self.l_burn = QLabel()
         self.l_arm = QLabel()
+        # A status label must never be squeezed below its own text. The
+        # hint in the middle is the only thing allowed to absorb slack,
+        # and it elides; everything else is a fact the tuner needs to be
+        # able to read, so it keeps its width.
+        for lbl in (self.l_conn, self.l_tune, self.l_burn, self.l_arm):
+            lbl.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+            lbl.setTextFormat(Qt.RichText)
         self.l_live = QLabel(); self.l_live.setMinimumWidth(240)
-        self.l_hint = QLabel(); self.l_hint.setObjectName("dim")
-        sb.addWidget(self.l_conn); sb.addWidget(self.l_tune); sb.addWidget(self.l_burn)
-        sb.addWidget(self.l_arm)
-        sb.addWidget(self.l_hint, 1)
+        self.l_hint = _ElidedLabel(); self.l_hint.setObjectName("dim")
+
+        # One container with a real layout, rather than four widgets added
+        # to the status bar directly. QStatusBar positions its items when
+        # they are added and on resize, not when a child's size hint
+        # changes, so labels that start empty and gain text later end up
+        # drawn on top of each other.
+        self._status_row = bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+        for lbl in (self.l_conn, self.l_tune, self.l_burn, self.l_arm):
+            row.addWidget(lbl)
+        row.addWidget(self.l_hint, 1)
+        sb.addWidget(bar, 1)
         sb.addPermanentWidget(self.l_live)
 
     # ----------------------------------------------------------------- items
@@ -365,9 +411,10 @@ class MainWindow(QMainWindow):
         name = self.tune.path.name if self.tune.path else self.tune.name
         star = "*" if self.tune.file_dirty else ""
         self.setWindowTitle(f"{name}{star} — {APP_NAME}")
-        self.l_tune.setText(f"Tune: {name}{star}")
-        self.l_burn.setText("<span style='color:#A00000'>Burn required</span>"
-                            if self.tune.ecu_dirty else "")
+        self._status(self.l_tune, f"Tune: {name}{star}")
+        self._status(self.l_burn,
+                     "<span style='color:#A00000'>Burn required</span>"
+                     if self.tune.ecu_dirty else "")
 
     # ----------------------------------------------------------------- ecu
     def toggle_connect(self):
@@ -385,17 +432,37 @@ class MainWindow(QMainWindow):
         self.dock_sim.setVisible(conn is self.sim)
         self._on_conn_state(False)
 
+    def _status(self, label, html: str):
+        """Set a status label and keep it wide enough to show what it says.
+
+        The explicit activate() is not decoration: a label that grows
+        after the row was first laid out does not get the row re-run on
+        its own, and the result is text drawn over its neighbour."""
+        label.setText(html)
+        label.setMinimumWidth(label.sizeHint().width() if html else 0)
+        row = getattr(self, "_status_row", None)
+        if row is not None and row.layout() is not None:
+            row.layout().invalidate()
+            row.layout().activate()
+
     def set_armed(self, on: bool):
         """Armed means keystrokes go to the running engine. Unarmed, edits
         stay in the tuner until they are sent. This is a deliberate act,
         because the alternative is typing into a running engine by accident."""
-        self.armed = bool(on)
+        on = bool(on)
+        changed = on != self.armed
+        self.armed = on
         self.a_arm.setChecked(self.armed)
-        self.l_arm.setText("<span style='color:#A00000'><b>LIVE WRITE ARMED</b></span>"
-                           if self.armed else "")
-        self.statusBar().showMessage(
-            "Live write armed: edits go straight to the ECU" if self.armed
-            else "Live write disarmed: edits stay in the tuner", 4000)
+        self._status(self.l_arm,
+                     "<span style='color:#A00000'><b>LIVE WRITE ARMED</b></span>"
+                     if self.armed else "")
+        # Only say so when it actually changed. Disarming something that
+        # was never armed is not news, and at start-up it puts a
+        # temporary message over the status bar for no reason.
+        if changed:
+            self.statusBar().showMessage(
+                "Live write armed: edits go straight to the ECU" if self.armed
+                else "Live write disarmed: edits stay in the tuner", 4000)
 
     def send_all(self):
         """Push the tuner's whole image into ECU RAM."""
@@ -489,11 +556,13 @@ class MainWindow(QMainWindow):
         self.datalog.set_live(connected and self.conn is self.sim)
         if connected:
             self._t0 = time.monotonic()
-            self.l_conn.setText(f"<span style='color:#2E9E44'>●</span> Connected: {self.conn.name}")
+            self._status(self.l_conn,
+                         f"<span style='color:#2E9E44'>●</span> Connected: {self.conn.name}")
             self.a_connect.setText("&Disconnect")
         else:
             self.audio.update(dict(rpm=0.0, map=30.0, boost=0.0, tps=0.0, cut_deg=0.0))
-            self.l_conn.setText("<span style='color:#9A9A9A'>●</span> Not connected")
+            self._status(self.l_conn,
+                         "<span style='color:#9A9A9A'>●</span> Not connected")
             self.a_connect.setText("&Connect"); self.l_live.setText("")
             for w in self.editors.values():
                 if isinstance(w, TableEditor): w.clear_cursor()

@@ -130,3 +130,29 @@ size to all of the preceding phases combined.
 
 The staging is designed so that abandoning the project at the end of any phase
 still leaves something working and worth having.
+
+## Phase 0, before any of this: harvest the factory calibration
+
+The B48 already has a torque model in it, and the DME publishes enough
+on CAN to reconstruct a usable part of it. Before writing a base map by
+hand, log a stock car: engine torque, requested torque, load, rpm,
+spark, cam positions, rail pressure, lambda. Several hours of ordinary
+driving plus a few pulls covers most of the operating range.
+
+What that gives you:
+
+- A base torque surface anchored on the real engine rather than on the
+  closed-form estimate in `tqmodel`, which assumes a thermal efficiency
+  it cannot know.
+- The factory's own relationship between load and torque, which is the
+  thing the inverse model has to invert.
+- A sanity check on VE: air mass per cycle is derivable from the
+  published load, and it should agree with what the VE table plus the
+  ideal gas law predicts.
+
+What it does not give you: MBT, or the knock limit. Those are dyno work.
+The factory calibration is knock-limited at high load, so the spark it
+runs is a lower bound on MBT and nothing more.
+
+This is cheap, it needs no hardware beyond a CAN interface, and it turns
+the first dyno day from "find everything" into "verify and refine".

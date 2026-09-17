@@ -11,11 +11,15 @@ void tq_monitor_reset(tq_monitor_t *m)
     m->t_pedal = m->t_tps = m->t_track = m->t_torque = 0.0f;
 }
 
+/* See tuner/core/monitor.py for why the shape is progressive rather
+ * than a straight ramp: a linear model false-alarms on every full
+ * throttle pull, because a real pedal is not linear in torque. */
 static f32 permissible_torque(f32 pedal_pct, f32 rpm, f32 max_torque)
 {
     f32 p = tq_clampf(pedal_pct, 0.0f, 100.0f) / 100.0f;
     f32 idle_allowance = rpm < 1500.0f ? 40.0f : 15.0f;
-    return idle_allowance + p * max_torque;
+    f32 shape = 1.0f - (1.0f - p) * (1.0f - p);
+    return idle_allowance + shape * max_torque;
 }
 
 static void raise_fault(u8 code, mon_limp_t limp,

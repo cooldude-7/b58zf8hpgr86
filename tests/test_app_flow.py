@@ -156,3 +156,73 @@ def test_the_simulator_keeps_its_own_image_of_the_tune(win):
     win.tune.tables["mbt"].values[:] += 5.0
     assert not np.allclose(win.sim.tune.tables["mbt"].values,
                            win.tune.tables["mbt"].values)
+
+
+# ---- the status bar -------------------------------------------------------
+@pytest.mark.parametrize("width", [1400, 1100, 900])
+def test_status_labels_never_overlap_or_clip(qapp, width):
+    """Labels that start empty and gain text later used to be drawn on
+    top of each other, because a status bar does not re-lay-out when a
+    child's size hint changes."""
+    from tuner.ui.main_window import MainWindow
+
+    w = MainWindow(default_tune(), persist_layout=False)
+    w.resize(width, 860)
+    w.show()
+    w.conn = w.sim
+    w.conn.connect_ecu()
+    w._on_conn_state(True)
+    w.set_armed(True)
+    w.tune.tables["ve"].set(0, 0, 0.9)
+    w._on_table_changed("ve")
+    for _ in range(3):
+        qapp.processEvents()
+    try:
+        right = -1
+        for label in (w.l_conn, w.l_tune, w.l_burn, w.l_arm, w.l_hint):
+            g = label.geometry()
+            assert g.x() >= right, f"{label.text()!r} overlaps its neighbour"
+            if label is not w.l_hint:
+                assert g.width() >= label.sizeHint().width(), \
+                    f"{label.text()!r} is clipped"
+            right = g.x() + g.width()
+    finally:
+        w.conn.disconnect_ecu()
+        w.tune.mark_saved()
+        w.close()
+
+
+def test_wide_open_throttle_does_not_trip_the_monitor(sim):
+    """A progressive pedal makes near-full torque well before full
+    travel. A monitor that assumes a straight ramp limps the car on
+    every hard pull, which is worse than no monitor at all."""
+    sim.pedal = 0.8
+    for _ in range(900):
+        sim._step()
+    ch = sim.channels()
+    assert ch["limp_level"] == 0, (
+        f"limped at 80% pedal: torque {ch['torque']:.0f} vs permissible "
+        f"{ch['torque_permissible']:.0f}, fault {ch['fault_code']:.0f}")
+    assert ch["torque"] > 150.0, f"only made {ch['torque']:.0f} Nm at 80% pedal"
+
+
+def test_disarming_something_never_armed_says_nothing(qapp):
+    """A temporary status message covers the permanent labels while it
+    shows. Announcing a disarm that never happened put it there at every
+    start-up, on top of the connection and tune names."""
+    from tuner.ui.main_window import MainWindow
+
+    w = MainWindow(default_tune(), persist_layout=False)
+    try:
+        w.set_armed(False)
+        assert w.statusBar().currentMessage() == ""
+        w.conn = w.sim
+        w.conn.connect_ecu()
+        w._on_conn_state(True)
+        assert w.statusBar().currentMessage() == ""
+        w.set_armed(True)
+        assert "armed" in w.statusBar().currentMessage().lower()
+    finally:
+        w.conn.disconnect_ecu()
+        w.tune.mark_saved()
+        w.close()

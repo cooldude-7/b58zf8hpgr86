@@ -450,7 +450,12 @@ class SimulatedECU(ECUConnection):
         noise = float(self._rng.normal(0, 0.15))
         pedal_a, pedal_b = tps, tps + noise
         tps_a, tps_b = tps + noise, tps
-        max_torque = max(base - t_fric, 1.0)
+        # The ceiling the engine could reach at this speed, not what it
+        # happens to be making. Feeding the monitor the current value
+        # would have it compare torque against a function of itself.
+        max_torque = max(float(T["base_torque"].lookup(self.rpm,
+                                                       T["base_torque"].y[-1]))
+                         - t_fric, 1.0)
         limp, fault = self.monitor.update(
             dt, pedal_a, pedal_b, tps_a, tps_b, tps, t_brake, self.rpm,
             max_torque, rev_limit, map_kpa, overboost_kpa)

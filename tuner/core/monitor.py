@@ -53,12 +53,24 @@ class Monitor:
 
     def permissible_torque(self, pedal_pct: float, rpm: float,
                            max_torque: float) -> float:
-        """What the driver could be asking for, computed the simple way and
-        deliberately NOT from the same tables Level 1 uses. Idle creep is
-        allowed at zero pedal; above that it is a straight ramp."""
+        """What the driver could be asking for.
+
+        Computed from the monitor's own simple model of the pedal, never
+        from the tables Level 1 uses, because a monitor that shares its
+        subject's arithmetic cannot catch its subject's mistakes.
+
+        The shape has to match the car's actual pedal characteristic
+        though, and a real pedal is progressive: the last third of travel
+        adds much less torque than the first third. A straight ramp says
+        eighty percent pedal may only make eighty percent torque, which
+        on a progressive pedal is a false alarm at every full-throttle
+        pull. `max_torque` is the engine's ceiling at this speed, not
+        whatever it happens to be making now.
+        """
         p = max(0.0, min(pedal_pct, 100.0)) / 100.0
         idle_allowance = 40.0 if rpm < 1500.0 else 15.0
-        return idle_allowance + p * max_torque
+        shape = 1.0 - (1.0 - p) ** 2          # progressive, 0 at 0, 1 at 1
+        return idle_allowance + shape * max_torque
 
     def update(self, dt: float, pedal_a: float, pedal_b: float,
                tps_a: float, tps_b: float, tps_cmd: float,
