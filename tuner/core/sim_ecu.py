@@ -18,7 +18,8 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QElapsedTimer, Qt, QTimer
 
-from tqmodel.model import (Engine, air_mass, friction_torque, lambda_efficiency,
+from tqmodel.model import (SPARK_EFF_K, SPARK_EFF_P, Engine, air_mass,
+                           friction_torque, lambda_efficiency,
                            spark_efficiency)
 from tqmodel.synth import truth_mbt, truth_ve
 from tqmodel.units import ATM_KPA, KPA_PER_PSI, kpa_abs_to_boost_psi
@@ -249,6 +250,29 @@ class SimulatedECU(ECUConnection):
     @staticmethod
     def plant_mbt(rpm: float, map_kpa: float) -> float:
         return float(truth_mbt(rpm, map_kpa)) + 2.5 * math.cos(rpm / 2300.0) - 1.0
+
+    @staticmethod
+    def plant_spark_efficiency(delta_from_mbt: float) -> float:
+        """Torque fraction either side of MBT, as the engine actually
+        behaves.
+
+        tqmodel.spark_efficiency is defined on retard only, and clips
+        negative values to zero, because the ECU never deliberately
+        commands more advance than MBT. The engine has no such rule. Push
+        past MBT and peak pressure arrives too early, the rising piston
+        fights it through the rest of compression, and torque falls
+        again, faster than it does on the retarded side.
+
+        Without this the sweep that finds MBT has no peak to find: over
+        advancing would look free, and the curve would be a plateau
+        running off to infinity.
+        """
+        d = float(delta_from_mbt)
+        if d >= 0.0:
+            return max(1.0 - SPARK_EFF_K * d ** SPARK_EFF_P, 0.0)
+        over = -d
+        # steeper the other way, and it is knocking by now in any case
+        return max(1.0 - 2.2 * SPARK_EFF_K * over ** SPARK_EFF_P, 0.0)
 
     @staticmethod
     def plant_knock_limit(rpm: float, map_kpa: float) -> float:
@@ -501,7 +525,7 @@ class SimulatedECU(ECUConnection):
             else:
                 torque_target = t_req
                 self._air_request = None
-        t_ind = base * float(spark_efficiency(mbt - spark)) * lam_eff
+        t_ind = base * self.plant_spark_efficiency(mbt - spark) * lam_eff
         t_brake = t_ind - t_fric
         if pedal < 0.03:
             # idle speed control: a real governor produces no net torque above
@@ -628,7 +652,8 @@ class SimulatedECU(ECUConnection):
         # ---- publish -------------------------------------------------------------
         ch = self._channels
         ch.update(rpm=self.rpm, map=map_kpa, boost=kpa_abs_to_boost_psi(map_kpa), tps=tps,
-                  clt=self.clt, iat=self.iat, spark=spark, mbt=mbt, knock=knock_tbl,
+                  clt=self.clt, iat=self.iat, spark=spark, mbt=mbt_tbl,
+                  knock=knock_tbl,
                   torque=t_brake, torque_req=torque_target, authority=authority,
                   cut_deg=max(spark_base - spark, 0.0), overrun=float(overrun),
                   batt=13.8 + float(self._rng.normal(0, 0.02)), air=air, ve=ve_true,
