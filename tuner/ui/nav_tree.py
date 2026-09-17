@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 TREE = [
     ("Engine Setup", [("Engine Constants", "settings", "engine"),
                       ("Injectors", "settings", "injectors"),
-                      ("Trigger / Sensors", "todo", "trigger")]),
+                      ("Trigger / Sensors", "settings", "trigger")]),
     ("Fuel", [("VE Table", "table", "ve"),
               ("Lambda Target", "table", "lambda"),
               ("Acceleration Enrichment", "todo", "accel")]),
@@ -17,6 +17,7 @@ TREE = [
                 ("Friction Model", "settings", "friction"),
                 ("Pedal Map", "todo", "pedal"),
                 ("Torque Structure", "todo", "torque_page")]),
+    ("Safety", [("Limits", "settings", "limits")]),
     ("Boost", [("Boost Target", "table", "boost"),
                ("Wastegate", "todo", "wastegate")]),
     ("Transmission", [("Shift Schedule", "todo", "shift_sched"),

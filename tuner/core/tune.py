@@ -42,6 +42,12 @@ ENGINE_LIMITS = {
     "tire_radius_m": (0.15, 0.60), "vehicle_mass_kg": (200.0, 5000.0),
     "boost_max_kpa": (100.0, 400.0), "overboost_cut_kpa": (100.0, 450.0),
     "max_cut_retard": (5.0, 60.0),
+    # trigger wheel and cam. These decide where every spark lands, so
+    # they are engine constants, not preferences.
+    "trigger_teeth": (4, 120), "trigger_missing": (0, 4),
+    "trigger_gap_to_tdc_deg": (0.0, 360.0),
+    "cam_edge_angle_deg": (0.0, 720.0), "cam_tolerance_deg": (1.0, 90.0),
+    "dwell_ms": (0.5, 8.0), "soi_btdc_deg": (0.0, 720.0),
 }
 
 
@@ -228,5 +234,12 @@ def default_tune() -> Tune:
         # safety limits
         "boost_max_kpa": 240.0, "overboost_cut_kpa": 265.0,
         "max_cut_retard": 35.0,
+        # PROVISIONAL: 60-2 is the usual BMW wheel, but the gap position
+        # and both cam patterns must come from a scope capture on the
+        # real engine before this drives anything. See docs/hardware.md.
+        "trigger_teeth": 60, "trigger_missing": 2,
+        "trigger_gap_to_tdc_deg": 114.0,
+        "cam_edge_angle_deg": 90.0, "cam_tolerance_deg": 25.0,
+        "dwell_ms": 2.5, "soi_btdc_deg": 300.0,
     }
     return Tune(name="B48 base", engine=engine, tables=tables).validate()

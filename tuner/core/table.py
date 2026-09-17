@@ -161,13 +161,19 @@ class Table:
 
     # -- persistence ----------------------------------------------------
     def crc(self) -> int:
-        """CRC over the exact bytes a burn would send: axes then values,
-        little-endian float64. The ECU computes the same number over what
-        it committed, and the two are compared."""
+        """CRC over the exact bytes a burn commits: key, axes, values, as
+        little-endian float32.
+
+        Single precision on purpose. The ECU stores single precision, so
+        a CRC over what the tuner meant to send would differ from a CRC
+        over what the ECU can hold for every value that is not exactly
+        representable, and the check would fail on a correct burn. The
+        question worth answering is whether the ECU holds what the tuner
+        intended, and that is a question about the committed image."""
         import zlib
-        b = (np.ascontiguousarray(self.x, dtype="<f8").tobytes()
-             + np.ascontiguousarray(self.y, dtype="<f8").tobytes()
-             + np.ascontiguousarray(self.values, dtype="<f8").tobytes())
+        b = (np.ascontiguousarray(self.x, dtype="<f4").tobytes()
+             + np.ascontiguousarray(self.y, dtype="<f4").tobytes()
+             + np.ascontiguousarray(self.values, dtype="<f4").tobytes())
         return zlib.crc32(self.key.encode() + b) & 0xFFFFFFFF
 
     def to_dict(self) -> dict:

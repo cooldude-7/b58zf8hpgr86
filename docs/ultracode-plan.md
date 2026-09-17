@@ -56,10 +56,16 @@ six C suites, all passing in CI.
   and pump path, monitor port, and the four-rate task structure. Host
   build and tests in CI.
 
-Not done, and needing hardware: the STM32H7 HAL, the serial or CAN
-transport between tuner and ECU, and the trigger settings page. The B48
-trigger patterns in `decoder_config_b48()` are placeholders until someone
-scopes them.
+The tuner link is done too: `fw/src/proto.c` and `tuner/core/link.py`
+speak the same framing, and `tests/test_serial_link.py` runs the real
+firmware as a subprocess and drives it down a pipe, so the burn CRC is
+checked across the actual boundary rather than against an imitation of
+it. Trigger and safety settings pages exist and write to the tune.
+
+Not done, and needing hardware: the STM32H7 HAL (`fw/hal/hal_stm32h7.c`
+documents the peripheral plan and refuses to build), and the physical
+port picker in the tuner. The B48 trigger numbers are placeholders until
+someone scopes them, and the trigger settings page says so on its face.
 
 ## 2. Phases
 

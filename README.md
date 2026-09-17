@@ -90,3 +90,19 @@ control theory, and protocol reverse engineering. The roadmap is staged so that
 each phase produces something independently useful and testable, and so the
 reference car is driving on its factory DME the entire time rather than sitting
 on jackstands waiting for the platform to mature.
+
+## Firmware
+
+`fw/` holds the C that runs the engine: crank and cam decoder,
+angle-domain event scheduler, the torque model ported from `tqmodel` and
+cross-checked against it, the fuel and pump path, the Level 2 monitor,
+and the tuner link protocol. It builds for the host so the whole control
+path is tested in CI without hardware.
+
+```
+cmake -S fw -B build/fw && cmake --build build/fw && ctest --test-dir build/fw
+```
+
+The target HAL is not written. The trigger numbers are placeholders
+until the real engine is scoped. See `docs/ultracode-plan.md` for the
+gates that must pass before first key-on.
