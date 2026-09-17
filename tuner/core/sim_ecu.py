@@ -20,10 +20,35 @@ from PySide6.QtCore import QElapsedTimer, Qt, QTimer
 
 from tqmodel.model import (Engine, air_mass, friction_torque, lambda_efficiency,
                            spark_efficiency)
+from tqmodel.synth import truth_mbt, truth_ve
 from tqmodel.units import ATM_KPA, KPA_PER_PSI, kpa_abs_to_boost_psi
-from .connection import ECUConnection
+from .connection import ECUConnection, ProtocolError
+from .monitor import IDLE_ONLY, Monitor
+from .table import check_axis
 
-_TOOLS = Path(__file__).resolve().parents[2] / "tools"
+def _tools_dir() -> Path:
+    """Where the shift coordinator lives.
+
+    Running from the repo it is tools/ next to the package. Frozen, the
+    bundle is read-only and the whole point of the coordinator is that the
+    user edits it, so it is copied once into their own data directory and
+    loaded from there.
+    """
+    if not getattr(sys, "frozen", False):
+        return Path(__file__).resolve().parents[2] / "tools"
+    import os
+    import shutil
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
+    root = Path(base) if base else Path.home() / ".local" / "share"
+    dst = root / "TorqueTune" / "tools"
+    src = Path(getattr(sys, "_MEIPASS", ".")) / "tools"
+    if not (dst / "shift" / "coordinator.py").exists() and src.exists():
+        dst.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+    return dst
+
+
+_TOOLS = _tools_dir()
 
 GEAR_RATIOS = {1: 4.714, 2: 3.143, 3: 2.106, 4: 1.667, 5: 1.285, 6: 1.000, 7: 0.839, 8: 0.667}
 ELEMENTS = "ABCDE"                       # A, B brakes; C, D, E clutches
@@ -37,15 +62,22 @@ PHASES = {"idle": 0, "cutting": 1, "holding": 2, "restoring": 3}
 class SimulatedECU(ECUConnection):
     name = "Simulator"
 
+    writable = True
+
     def __init__(self, tune):
         super().__init__()
-        self.tune = tune
+        # The ECU holds its OWN image of the tune. The editor's copy reaches
+        # it only through write_cell/write_table, exactly as it would over a
+        # wire -- so an unsent edit cannot change how the engine runs.
+        self.tune = tune.copy()
+        self.flash = tune.copy()
         self.dt = 0.01
         self.pedal = 0.0                 # 0..1
         self.mode = "road"               # or "dyno"
         self.dyno_rpm = 3000.0
         self.chase_air_bug = False
         self._rng = np.random.default_rng(1)
+        self.monitor = Monitor()
         self.reset()
         self.coord = self.coord_state = self.coord_error = None
         self.load_coordinator()
@@ -70,6 +102,15 @@ class SimulatedECU(ECUConnection):
         self._last_targets = (35.0, 0.0)
         self._spark, self._mbt = 20.0, 20.0
         self.tc_lock = 0
+        self.knock_retard = 0.0
+        self.knock_count = 0
+        self._knock_hold = 0.0
+        self.step_error = None
+        self.coord_fault = 0.0
+        self._air_request = None
+        self._driver_torque = 0.0
+        self.shift_inhibit = 0.0
+        self.monitor.reset()
 
     # ---- the coordinator exercise --------------------------------------
     def load_coordinator(self):
@@ -97,18 +138,135 @@ class SimulatedECU(ECUConnection):
         self.channels_updated.emit(self.channels())
         super().disconnect_ecu()
 
+    # ---- the table protocol -------------------------------------------
+    def identify(self) -> dict:
+        return {"ecu_id": "SIM-0001", "firmware": "simulator",
+                "protocol_version": 1,
+                "layout_hash": f"{self._layout_hash():08x}"}
+
+    def _layout_hash(self) -> int:
+        import zlib
+        parts = []
+        for k in sorted(self.tune.tables):
+            t = self.tune.tables[k]
+            parts.append(f"{k}:{t.n_x}x{t.n_y}:{t.lo}:{t.hi}")
+        return zlib.crc32("|".join(parts).encode()) & 0xFFFFFFFF
+
+    def describe_tables(self) -> dict:
+        return {k: {"n_x": t.n_x, "n_y": t.n_y, "lo": t.lo, "hi": t.hi,
+                    "unit": t.unit}
+                for k, t in self.tune.tables.items()}
+
+    def read_table(self, key: str):
+        self._require_connected()
+        t = self.tune.tables.get(key)
+        if t is None:
+            raise ProtocolError(f"no table {key!r} in this ECU")
+        return t.values.copy()
+
+    def write_cell(self, key: str, j: int, i: int, value: float):
+        self._require_connected()
+        t = self.tune.tables.get(key)
+        if t is None:
+            raise ProtocolError(f"no table {key!r} in this ECU")
+        if not (0 <= j < t.n_y and 0 <= i < t.n_x):
+            raise ProtocolError(f"{key}[{j},{i}] is outside the ECU layout "
+                                f"({t.n_y}x{t.n_x})")
+        if not t.accepts(value):
+            raise ProtocolError(f"{key}: {value:g} is outside "
+                                f"{t.lo:g}..{t.hi:g}")
+        t.values[j, i] = float(value)
+        # a real ECU echoes the committed value back; the tuner marks the
+        # cell RAM only on the echo, never on the keystroke
+        self.write_acked.emit(key, j, i, float(t.values[j, i]))
+
+    def write_table(self, key: str, values, x=None, y=None):
+        self._require_connected()
+        t = self.tune.tables.get(key)
+        if t is None:
+            raise ProtocolError(f"no table {key!r} in this ECU")
+        values = np.asarray(values, dtype=float)
+        if values.shape != t.values.shape:
+            raise ProtocolError(f"{key}: {values.shape} does not fit the ECU "
+                                f"layout {t.values.shape}")
+        t.check_bounds(values)
+        if x is not None:
+            t.x = check_axis(x, f"{key}.x")
+        if y is not None:
+            t.y = check_axis(y, f"{key}.y")
+        t.values[:] = values
+
+    def burn(self) -> dict:
+        self._require_connected()
+        self.tune.validate()
+        self.flash = self.tune.copy()
+        return self.flash.crcs()
+
     # ---- external controls --------------------------------------------------
     def request_shift(self, up=True):
         if self.mode != "road" or self.shift:
             return
         new = self.gear + (1 if up else -1)
-        if 1 <= new <= 8:
-            self._start_shift(new)
+        if not 1 <= new <= 8:
+            return
+        if self._would_overrev(new):
+            self.shift_inhibit = 1.0     # a downshift the engine cannot survive
+            return
+        self.shift_inhibit = 0.0
+        self._start_shift(new)
+
+    def _would_overrev(self, new_gear: int) -> bool:
+        """Engine speed the driveline would force after the shift. A manual
+        downshift at speed is the classic way to put an engine past its
+        limit, and the transmission must refuse it."""
+        e = self.tune.engine
+        fd = float(e.get("final_drive", 3.46))
+        r_t = float(e.get("tire_radius_m", 0.318))
+        wheel_rps = self.v / max(2 * math.pi * r_t, 1e-6)
+        after = wheel_rps * 60.0 * fd * GEAR_RATIOS[new_gear]
+        return after > float(e.get("rev_limit", 7200)) - 200.0
 
     def set_bug(self, on: bool):
         self.chase_air_bug = on
         if self.coord_state is not None:
             self.coord_state["chase_air_bug"] = on
+
+    # ---- the plant --------------------------------------------------------
+    # The engine on the dyno is NOT the engine the base map was written for.
+    # These three surfaces are the truth the tuner is trying to find; the
+    # tune's own VE, MBT and knock tables are only the current guess. If the
+    # plant read the tune, every table would confirm itself and nothing
+    # could be tuned.
+    @staticmethod
+    def plant_ve(rpm: float, map_kpa: float) -> float:
+        err = (1.0 + 0.085 * math.sin(rpm / 1700.0)
+               - 0.060 * max(map_kpa - 120.0, 0.0) / 120.0)
+        return max(float(truth_ve(rpm, map_kpa)) * err, 0.05)
+
+    @staticmethod
+    def plant_mbt(rpm: float, map_kpa: float) -> float:
+        return float(truth_mbt(rpm, map_kpa)) + 2.5 * math.cos(rpm / 2300.0) - 1.0
+
+    @staticmethod
+    def plant_knock_limit(rpm: float, map_kpa: float) -> float:
+        """Spark advance this engine will tolerate before it rattles."""
+        return (26.0 - 0.26 * max(map_kpa - 90.0, 0.0)
+                + 0.0016 * rpm + 2.0 * math.sin(rpm / 1900.0))
+
+    def _fuel(self, air_g: float, lam_target: float, rpm: float):
+        """Injected fuel and the pulse width that delivers it. Returns
+        (fuel_mg, pw_ms, duty_pct)."""
+        e = self.tune.engine
+        afr = float(e.get("afr_stoich", 14.7))
+        fuel_g = air_g / max(afr * max(lam_target, 0.3), 1e-6)
+        flow_cc_min = float(e.get("injector_flow_cc_min", 1050.0))
+        rail = float(e.get("fuel_pressure_kpa", 350.0))
+        # flow scales with the square root of the pressure drop across the
+        # nozzle; the rating is at the tune's own rail pressure
+        flow_g_s = flow_cc_min / 60.0 * 0.745 * math.sqrt(max(rail, 1.0) / 350.0)
+        pw = fuel_g / max(flow_g_s, 1e-6) * 1000.0 + float(e.get("injector_deadtime_ms", 0.9))
+        period_ms = 120000.0 / max(rpm, 100.0)      # one injection per two revs
+        return fuel_g * 1000.0, pw, min(pw / period_ms * 100.0, 100.0)
 
     # ---- engine constants from the tune --------------------------------------
     def _engine(self) -> Engine:
@@ -135,7 +293,17 @@ class SimulatedECU(ECUConnection):
         self._acc += min(elapsed, 0.25)            # a long stall (debugger, sleep) is dropped, not replayed
         n = 0
         while self._acc >= self.dt and n < 25:
-            self._step(); self._acc -= self.dt; n += 1
+            try:
+                self._step()
+            except Exception as exc:                  # noqa: BLE001
+                # One bad tune or one bad line of model code must not turn
+                # into a hundred tracebacks a second. Stop, say why, once.
+                self._timer.stop()
+                self.step_error = f"{type(exc).__name__}: {exc}"
+                self.error.emit(f"Simulation stopped: {self.step_error}")
+                self._acc = 0.0
+                return
+            self._acc -= self.dt; n += 1
         self._since_publish += elapsed
         if self._since_publish >= 0.04:             # publish at 25 Hz
             self._since_publish = 0.0
@@ -156,6 +324,10 @@ class SimulatedECU(ECUConnection):
             # idle governor: trim manifold pressure to hold ~850 rpm in gear
             map_na_t = min(max(30.0 - 0.03 * (self.rpm - 850.0), 20.0), 40.0)
         boost_tgt = max(0.0, T["boost"].lookup(self.rpm, tps)) * KPA_PER_PSI if "boost" in T else 0.0
+        # a boost target is a request, not a permission: the wastegate can
+        # only be asked for what the hardware limit allows
+        boost_max = float(e.get("boost_max_kpa", 240.0)) - ATM_KPA
+        boost_tgt = min(boost_tgt, max(boost_max, 0.0))
         spool = min(max((self.rpm - 1800.0) / 1800.0, 0.0), 1.0)      # no exhaust energy, no boost
         boost_t = boost_tgt * spool
         self._last_targets = (map_na_t, boost_t)
@@ -163,7 +335,17 @@ class SimulatedECU(ECUConnection):
         # coordinator's own state -- an unfinished coordinator that never
         # returns to idle must not be able to wedge the air path
         if self.shift is not None and self.frozen is not None:
-            if self.chase_air_bug:
+            ar = self._air_request
+            if ar is not None and math.isfinite(ar) and self._driver_torque > 1.0:
+                # the COORDINATOR owns the freeze: whatever air it asks for
+                # is what the throttle and wastegate are sized for. Holding
+                # the pre-shift request means scale 1.0; chasing the cut
+                # means asking for more, and the overshoot that follows is
+                # the lesson.
+                k = min(max(ar / self._driver_torque, 0.3), 1.6)
+                map_na_t = self.frozen[0]
+                boost_t = min(self.frozen[1] * k, 30.0 * KPA_PER_PSI)
+            elif self.chase_air_bug:
                 # an air path that does not know the cut is deliberate chases it
                 eff_now = max(float(spark_efficiency(self._mbt - self._spark)), 0.05)
                 map_na_t, boost_t = self.frozen[0], min(self.frozen[1] / eff_now, 30.0 * KPA_PER_PSI)
@@ -179,13 +361,40 @@ class SimulatedECU(ECUConnection):
         self.iat = 25.0 + 0.12 * max(map_kpa - ATM_KPA, 0.0)
         t_charge = 273.15 + self.iat + 15.0
 
-        # ---- charge, spark, lambda, torque --------------------------------------
-        ve = T["ve"].lookup(self.rpm, map_kpa)
-        air = float(air_mass(ve, map_kpa, t_charge, eng))
-        mbt = T["mbt"].lookup(self.rpm, map_kpa)
-        knock = T["knock"].lookup(self.rpm, map_kpa)
-        spark_base = min(mbt, knock) - 1.0                       # 1 degree of margin
-        lam = T["lambda"].lookup(self.rpm, map_kpa) + float(self._rng.normal(0, 0.004))
+        # ---- charge, fuel, spark, torque ----------------------------------------
+        # What the ECU BELIEVES: its VE table, used to size the injection.
+        ve_cmd = T["ve"].lookup(self.rpm, map_kpa)
+        air_cmd = float(air_mass(ve_cmd, map_kpa, t_charge, eng))
+        lam_target = T["lambda"].lookup(self.rpm, map_kpa)
+        fuel_mg, pw_ms, duty = self._fuel(air_cmd, lam_target, self.rpm)
+        rail_kpa = float(e.get("fuel_pressure_kpa", 350.0))
+
+        # What the ENGINE actually does: the plant's own VE. The difference
+        # between the two is exactly what shows up in measured lambda, which
+        # is what makes the VE table tunable.
+        ve_true = self.plant_ve(self.rpm, map_kpa)
+        air = float(air_mass(ve_true, map_kpa, t_charge, eng))
+        afr = float(e.get("afr_stoich", 14.7))
+        lam = air / max(fuel_mg * 1e-3 * afr, 1e-9)
+        lam = min(max(lam, 0.4), 2.5) + float(self._rng.normal(0, 0.004))
+
+        mbt = self.plant_mbt(self.rpm, map_kpa)          # the real peak
+        mbt_tbl = T["mbt"].lookup(self.rpm, map_kpa)     # where the tune thinks it is
+        knock_tbl = T["knock"].lookup(self.rpm, map_kpa)
+        spark_cmd = min(mbt_tbl, knock_tbl) - 1.0                 # 1 degree of margin
+
+        # ---- knock ---------------------------------------------------------------
+        # The plant has its own detonation threshold. Command more advance
+        # than that and it knocks, the ECU hears it and pulls timing back.
+        limit = self.plant_knock_limit(self.rpm, map_kpa)
+        if spark_cmd - self.knock_retard > limit and self.rpm > 1200.0:
+            self.knock_count += 1
+            self.knock_retard = min(self.knock_retard + 1.5, 15.0)
+            self._knock_hold = 1.5
+        self._knock_hold = max(self._knock_hold - dt, 0.0)
+        if self._knock_hold <= 0.0:
+            self.knock_retard = max(self.knock_retard - 0.6 * dt, 0.0)
+        spark_base = spark_cmd - self.knock_retard
         # friction (Chen-Flynn), accessories, and pumping work against a closed
         # throttle -- the model's FMEP term does not include pumping
         vd_m3 = float(e.get("displacement_l", 2.0)) * 1e-3
@@ -197,13 +406,30 @@ class SimulatedECU(ECUConnection):
 
         spark, torque_target = spark_base, t_req
         if self.coord is not None:
-            # the coordinator is given the knock-limited base as its "MBT":
-            # its retard is then relative to where spark actually sits
-            sp_cmd, _air_req, torque_target = self.coord.update(self.coord_state, dt, t_req, spark_base)
+            # The coordinator is the user's own code. It gets the current
+            # operating spark as its reference, so its retard is relative to
+            # where spark actually sits, knock retard already spent included.
+            # It is untrusted: anything it returns is clamped, and an
+            # exception in it must not be able to stop the engine.
+            try:
+                sp_cmd, air_req, torque_target = self.coord.update(
+                    self.coord_state, dt, t_req, spark_base)
+                if not (math.isfinite(sp_cmd) and math.isfinite(torque_target)):
+                    raise ValueError("coordinator returned a non-finite value")
+                max_cut = float(e.get("max_cut_retard", 35.0))
+                sp_cmd = min(max(sp_cmd, spark_base - max_cut), spark_base)
+                self.coord_fault = 0.0
+            except Exception as exc:                  # noqa: BLE001
+                self.coord_error = f"{type(exc).__name__}: {exc}"
+                self.coord = None                     # stop calling it
+                self.coord_fault = 1.0
+                sp_cmd, air_req, torque_target = spark_base, t_req, t_req
             if self.shift is not None:
                 spark = min(spark_base, sp_cmd)
+                self._air_request = air_req
             else:
                 torque_target = t_req
+                self._air_request = None
         t_ind = base * float(spark_efficiency(mbt - spark)) * lam_eff
         t_brake = t_ind - t_fric
         if pedal < 0.03:
@@ -212,13 +438,30 @@ class SimulatedECU(ECUConnection):
             t_brake = min(t_brake, max(0.0, (900.0 - self.rpm) * 0.08))
             t_req = min(t_req, max(0.0, (900.0 - self.rpm) * 0.08))
         overrun = pedal < 0.03 and self.rpm > 1250.0
-        if self.rpm > float(e.get("rev_limit", 7200)) or overrun:
-            t_brake = -t_fric                                    # fuel cut: limiter or overrun
+        rev_limit = float(e.get("rev_limit", 7200))
+        overboost_kpa = float(e.get("overboost_cut_kpa", 265.0))
+        overboost = map_kpa > overboost_kpa
+        if self.rpm > rev_limit or overrun or overboost:
+            t_brake = -t_fric                    # fuel cut: limiter, overrun or overboost
+
+        # ---- Level 2 monitor -----------------------------------------------------
+        # Two pedal tracks and two throttle tracks, as the hardware has. The
+        # monitor never sees the torque model's own numbers.
+        noise = float(self._rng.normal(0, 0.15))
+        pedal_a, pedal_b = tps, tps + noise
+        tps_a, tps_b = tps + noise, tps
+        max_torque = max(base - t_fric, 1.0)
+        limp, fault = self.monitor.update(
+            dt, pedal_a, pedal_b, tps_a, tps_b, tps, t_brake, self.rpm,
+            max_torque, rev_limit, map_kpa, overboost_kpa)
+        if limp != 0:
+            t_brake = min(t_brake, self.monitor.torque_cap(max_torque))
         # fast-path authority: down to 30 degrees from MBT, not from wherever
         # spark is now -- knock retard already spent counts against it
         floor = base * float(spark_efficiency(30.0)) * lam_eff - t_fric
         authority = max(t_brake - floor, 0.0) if not overrun else 0.0
         self._spark, self._mbt = spark, mbt
+        self._driver_torque = t_req
 
         # ---- driveline -----------------------------------------------------------
         fd = float(e.get("final_drive", 3.46))
@@ -305,16 +548,25 @@ class SimulatedECU(ECUConnection):
         # ---- publish -------------------------------------------------------------
         ch = self._channels
         ch.update(rpm=self.rpm, map=map_kpa, boost=kpa_abs_to_boost_psi(map_kpa), tps=tps,
-                  clt=self.clt, iat=self.iat, spark=spark, mbt=mbt, knock=knock,
+                  clt=self.clt, iat=self.iat, spark=spark, mbt=mbt, knock=knock_tbl,
                   torque=t_brake, torque_req=torque_target, authority=authority,
                   cut_deg=max(spark_base - spark, 0.0), overrun=float(overrun),
-                  batt=13.8 + float(self._rng.normal(0, 0.02)), air=air, ve=ve,
+                  batt=13.8 + float(self._rng.normal(0, 0.02)), air=air, ve=ve_true,
                   gear=float(self.gear), ratio=ratio_g, turbine_rpm=turbine,
                   output_rpm=self.v / (2 * math.pi * r_t) * 60.0 * fd, speed=self.v * 3.6,
                   line_bar=line, tc_lock=float(tc_lock), shift_phase=float(phase),
                   coord_phase=float(PHASES.get(self.coord_state["phase"], 0)) if self.coord_state else 0.0,
                   shift_from=float(self.shift["old"]) if self.shift else 0.0,
-                  shift_to=float(self.shift["new"]) if self.shift else 0.0)
+                  shift_to=float(self.shift["new"]) if self.shift else 0.0,
+                  pw_ms=pw_ms, inj_duty=duty, fuel_mass=fuel_mg, rail_kpa=rail_kpa,
+                  knock_retard=self.knock_retard, knock_count=float(self.knock_count),
+                  pedal_a=pedal_a, pedal_b=pedal_b, tps_a=tps_a, tps_b=tps_b,
+                  torque_permissible=self.monitor.permissible,
+                  monitor_state=float(self.monitor.state),
+                  limp_level=float(self.monitor.limp),
+                  fault_code=float(self.monitor.fault),
+                  coord_fault=self.coord_fault,
+                  shift_inhibit=self.shift_inhibit)
         ch["lambda"] = lam
         for el in ELEMENTS:
             ch[f"p_{el.lower()}"] = self.p[el]

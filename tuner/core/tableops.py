@@ -74,7 +74,10 @@ def from_tsv(text: str) -> np.ndarray | None:
             return None
     if not rows or any(len(r) != len(rows[0]) for r in rows):
         return None
-    return np.asarray(rows, dtype=float)
+    a = np.asarray(rows, dtype=float)
+    if not np.isfinite(a).all():
+        return None            # nan/inf in the clipboard is never a tune
+    return a
 
 
 def regrid(values: np.ndarray, x: np.ndarray, y: np.ndarray,

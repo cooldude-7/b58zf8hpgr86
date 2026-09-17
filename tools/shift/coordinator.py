@@ -16,6 +16,13 @@ CHECK YOUR WORK
     python tools\\shift\\simulate.py       plots what your code did
 """
 
+# The spark efficiency curve, shared with tqmodel.model. Kept as plain
+# numbers so this file has no imports at all.
+SPARK_EFF_K = 1.096e-3
+SPARK_EFF_P = 1.8
+MAX_RETARD = 35.0
+
+
 # How long each part of the shift lasts, in milliseconds.
 RAMP_IN_MS = 50.0      # pulling torque down -- fast
 HOLD_MS = 250.0        # the inertia phase -- clutch doing its work
@@ -56,20 +63,21 @@ def retard_for_fraction(fraction):
     """How many degrees to retard to get this fraction of full torque.
 
     Given to you -- this is just algebra, not architecture.
-        fraction 1.0  ->  0 degrees  (sit at MBT, full torque)
-        fraction 0.9  -> 10 degrees
-        fraction 0.5  -> 30 degrees
+        fraction 1.00 ->  0 degrees  (sit at MBT, full torque)
+        fraction 0.93 -> 10 degrees
+        fraction 0.50 -> 30 degrees
+
+    The curve is the one in tqmodel.model.spark_efficiency, repeated here
+    in plain arithmetic so this file stays importable on a bare ECU with no
+    numpy. The two must agree: eff = 1 - K * degrees ** P.
     """
     if fraction > 1.0:
         fraction = 1.0
     if fraction < 0.05:
         fraction = 0.05
-    a = 0.006667
-    b = 0.0003333
-    disc = a * a + 4.0 * b * (1.0 - fraction)
-    degrees = (-a + disc ** 0.5) / (2.0 * b)
-    if degrees > 35.0:
-        degrees = 35.0
+    degrees = ((1.0 - fraction) / SPARK_EFF_K) ** (1.0 / SPARK_EFF_P)
+    if degrees > MAX_RETARD:
+        degrees = MAX_RETARD
     return degrees
 
 
@@ -80,7 +88,7 @@ def fraction_for_retard(degrees):
     """
     if degrees < 0.0:
         degrees = 0.0
-    f = 1.0 - 0.006667 * degrees - 0.0003333 * degrees * degrees
+    f = 1.0 - SPARK_EFF_K * degrees ** SPARK_EFF_P
     if f < 0.0:
         f = 0.0
     return f

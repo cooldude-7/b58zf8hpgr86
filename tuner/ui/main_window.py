@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.persist_layout = persist_layout
         self.tune = tune or default_tune()
+        self.armed = False           # live write is off until deliberately armed
         self.sim = SimulatedECU(self.tune)
         self.audio = AudioOutput()
         self.demo = DemoConnection()
@@ -106,8 +107,14 @@ class MainWindow(QMainWindow):
                            triggered=self.toggle_connect)
         self.a_burn = A(_glyph("burn"), "&Burn to ECU", self, shortcut="F5",
                         triggered=self.burn)
-        self.a_read = A("&Read from ECU", self, enabled=False)
+        self.a_read = A("&Read from ECU", self, triggered=self.read_from_ecu)
+        self.a_send = A("&Send to ECU RAM", self, shortcut="F4", triggered=self.send_all)
+        self.a_arm = A("Arm &live write", self, checkable=True,
+                       triggered=self.set_armed)
         self.a_burn.setEnabled(False)
+        self.a_read.setEnabled(False)
+        self.a_send.setEnabled(False)
+        self.a_arm.setEnabled(False)
 
         # Edit / Tools act on the current table editor. Their shortcuts are
         # shown in the menus but only live in the table view itself, so they
@@ -156,7 +163,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&ECU")
         m.addAction(self.a_connect)
         sub = m.addMenu("Connect &to"); sub.addAction(self.a_conn_sim); sub.addAction(self.a_conn_demo)
-        m.addSeparator(); m.addAction(self.a_read); m.addAction(self.a_burn)
+        m.addSeparator(); m.addAction(self.a_read); m.addAction(self.a_send)
+        m.addAction(self.a_burn); m.addSeparator(); m.addAction(self.a_arm)
 
         self.m_view = mb.addMenu("&View")
 
@@ -221,9 +229,11 @@ class MainWindow(QMainWindow):
     def _build_statusbar(self):
         sb = self.statusBar()
         self.l_conn = QLabel(); self.l_tune = QLabel(); self.l_burn = QLabel()
+        self.l_arm = QLabel()
         self.l_live = QLabel(); self.l_live.setMinimumWidth(240)
         self.l_hint = QLabel(); self.l_hint.setObjectName("dim")
         sb.addWidget(self.l_conn); sb.addWidget(self.l_tune); sb.addWidget(self.l_burn)
+        sb.addWidget(self.l_arm)
         sb.addWidget(self.l_hint, 1)
         sb.addPermanentWidget(self.l_live)
 
@@ -233,7 +243,7 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.editors[key]); return
         if kind == "table":
             w = TableEditor(self.tune.tables[key], boost_psi=self.boost_psi)
-            w.changed.connect(self._refresh_title)
+            w.changed.connect(lambda k=key: self._on_table_changed(k))
             w.undo_changed.connect(self._update_edit_actions)
             if self.conn.is_connected():
                 ch = self.conn.channels()
@@ -330,29 +340,34 @@ class MainWindow(QMainWindow):
         self.tune.save(path); self._refresh_title(); return True
 
     def _replace_tune(self, tune: Tune):
+        tune.validate()                 # never swap in something unrunnable
         self.tune = tune
-        self.sim.tune = tune
+        self.sim.tune = tune.copy()     # the ECU gets its own image, as over a wire
+        self.sim.flash = tune.copy()
         while self.tabs.count(): self._close_tab(0)
         self.editors.clear()
         self.open_item("table", "ve", "VE Table")
         self._refresh_title()
 
     def _confirm_discard(self) -> bool:
-        if not self.tune.dirty: return True
+        # the question is whether work would be LOST, which is the file
+        # state. Whether the ECU has it is a different question entirely.
+        if not self.tune.file_dirty: return True
         r = QMessageBox.question(self, APP_NAME, "The tune has unsaved changes. Save first?",
                                  QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         if r == QMessageBox.Save: return bool(self.save_tune())
         return r == QMessageBox.Discard
 
     def _engine_changed(self):
-        self.tune.engine_dirty = True; self._refresh_title()
+        self.tune.touch_engine(); self._refresh_title()
 
     def _refresh_title(self, *_):
         name = self.tune.path.name if self.tune.path else self.tune.name
-        star = "*" if self.tune.dirty else ""
+        star = "*" if self.tune.file_dirty else ""
         self.setWindowTitle(f"{name}{star} — {APP_NAME}")
         self.l_tune.setText(f"Tune: {name}{star}")
-        self.l_burn.setText("<span style='color:#A00000'>Burn required</span>" if self.tune.dirty else "")
+        self.l_burn.setText("<span style='color:#A00000'>Burn required</span>"
+                            if self.tune.ecu_dirty else "")
 
     # ----------------------------------------------------------------- ecu
     def toggle_connect(self):
@@ -370,16 +385,107 @@ class MainWindow(QMainWindow):
         self.dock_sim.setVisible(conn is self.sim)
         self._on_conn_state(False)
 
+    def set_armed(self, on: bool):
+        """Armed means keystrokes go to the running engine. Unarmed, edits
+        stay in the tuner until they are sent. This is a deliberate act,
+        because the alternative is typing into a running engine by accident."""
+        self.armed = bool(on)
+        self.a_arm.setChecked(self.armed)
+        self.l_arm.setText("<span style='color:#A00000'><b>LIVE WRITE ARMED</b></span>"
+                           if self.armed else "")
+        self.statusBar().showMessage(
+            "Live write armed: edits go straight to the ECU" if self.armed
+            else "Live write disarmed: edits stay in the tuner", 4000)
+
+    def send_all(self):
+        """Push the tuner's whole image into ECU RAM."""
+        if not (self.conn.is_connected() and self.conn.writable):
+            QMessageBox.information(self, "Send", "Connect to a writable ECU first.")
+            return False
+        try:
+            for key, t in self.tune.tables.items():
+                self.conn.write_table(key, t.values, t.x, t.y)
+                t.mark_sent()
+            self.conn.tune.engine.update(self.tune.engine)
+        except Exception as e:                        # noqa: BLE001
+            QMessageBox.critical(self, "Send", f"The ECU refused the tune:\n{e}")
+            return False
+        self._refresh_open_editors(); self._refresh_title()
+        self.statusBar().showMessage("Tune sent to ECU RAM", 3000)
+        return True
+
     def burn(self):
-        if self.conn is self.sim and self.conn.is_connected():
-            # the simulator runs from the live tune, like controller RAM; burn commits it
-            self.tune.clear_dirty(); self._refresh_title()
-            self.statusBar().showMessage("Burned to Simulator", 3000)
-        else:
-            QMessageBox.information(self, "Burn", "Connect to the simulated engine first.")
+        if not (self.conn.is_connected() and self.conn.writable):
+            QMessageBox.information(self, "Burn", "Connect to a writable ECU first.")
+            return
+        # Anything still LOCAL has not reached the ECU, so burning now would
+        # commit an image the tuner is not showing.
+        if not self.send_all():
+            return
+        try:
+            committed = self.conn.burn()
+        except Exception as e:                        # noqa: BLE001
+            QMessageBox.critical(self, "Burn", f"The burn failed:\n{e}")
+            return
+        # Verify: the CRC the ECU reports over what it committed must equal
+        # the CRC the tuner computes over what it meant to send. Anything
+        # else and the tune in the ECU is not the tune on screen.
+        mine = self.tune.crcs()
+        bad = [k for k, c in mine.items() if committed.get(k) != c]
+        if bad:
+            QMessageBox.critical(
+                self, "Burn",
+                "The ECU committed something different from what was sent.\n"
+                "Mismatched tables: " + ", ".join(sorted(bad)) +
+                "\n\nDo not run the engine on this tune. Read the ECU back.")
+            return
+        self.tune.mark_burned()
+        self._refresh_open_editors(); self._refresh_title()
+        self.statusBar().showMessage(
+            f"Burned and verified: {len(mine)} tables, CRC match", 4000)
+
+    def read_from_ecu(self):
+        """Replace the tuner's image with what the ECU actually has."""
+        if not self.conn.is_connected():
+            QMessageBox.information(self, "Read", "Connect first.")
+            return
+        if not self._confirm_discard():
+            return
+        try:
+            for key, t in self.tune.tables.items():
+                t.values[:] = self.conn.read_table(key)
+                t.mark_burned()
+        except Exception as e:                        # noqa: BLE001
+            QMessageBox.critical(self, "Read", f"Could not read the ECU:\n{e}")
+            return
+        self._refresh_open_editors(); self._refresh_title()
+        self.statusBar().showMessage("Read from ECU", 3000)
+
+    def _refresh_open_editors(self):
+        for ed in self.editors.values():
+            ed.model.refresh()
+
+    def _on_table_changed(self, key: str):
+        """A cell changed in the editor. Armed, it goes to the ECU now."""
+        t = self.tune.tables.get(key)
+        if t is None:
+            return
+        if self.armed and self.conn.is_connected() and self.conn.writable:
+            try:
+                self.conn.write_table(key, t.values, t.x, t.y)
+                t.mark_sent()
+            except Exception as e:                    # noqa: BLE001
+                self.statusBar().showMessage(f"ECU refused the write: {e}", 6000)
+        self._refresh_title()
 
     def _on_conn_state(self, connected: bool):
-        self.a_burn.setEnabled(connected and self.conn is self.sim)
+        writable = connected and self.conn.writable
+        self.a_burn.setEnabled(writable)
+        self.a_send.setEnabled(writable)
+        self.a_arm.setEnabled(writable)
+        self.a_read.setEnabled(connected)
+        if not writable:
+            self.set_armed(False)
         self.datalog.set_live(connected and self.conn is self.sim)
         if connected:
             self._t0 = time.monotonic()

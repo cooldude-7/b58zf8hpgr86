@@ -88,6 +88,8 @@ class TableModel(QAbstractTableModel):
         j, i = self.ji(index)
         if self.table.values[j, i] == v:
             return True
+        if not self.table.accepts(v):
+            return False        # out of physical bounds: the cell keeps its value
         self.before_change()
         self.table.set(j, i, v)
         self.refresh()
@@ -182,6 +184,11 @@ class TableView(QTableView):
 class AxisDialog(QDialog):
     """Edit breakpoints. Values are re-sampled from the old surface on OK."""
 
+    fixed_layout = False        # set when a connected ECU pins the dimensions
+
+    def _expected(self, g):
+        return self.table.n_x if g is self.tx else self.table.n_y
+
     def __init__(self, table: Table, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Axis Breakpoints — {table.title}")
@@ -222,9 +229,15 @@ class AxisDialog(QDialog):
             it = g.item(r, 0)
             txt = it.text().strip() if it else ""
             if txt:
-                vals.append(float(txt))
+                v = float(txt)
+                if not np.isfinite(v):
+                    raise ValueError("a breakpoint must be a finite number")
+                vals.append(v)
         if len(vals) < 2 or any(b <= a for a, b in zip(vals, vals[1:])):
             raise ValueError("breakpoints must be strictly increasing, at least two")
+        if self.fixed_layout and (len(vals) != self._expected(g)):
+            raise ValueError("the connected ECU has a fixed table layout: you can "
+                             "move breakpoints but not add or remove them")
         return np.asarray(vals, dtype=float)
 
     def _accept(self):
@@ -343,13 +356,19 @@ class TableEditor(QWidget):
     # ---- undo -----------------------------------------------------------
     def _snapshot(self):
         t = self.table
-        return dict(x=t.x.copy(), y=t.y.copy(), values=t.values.copy(), dirty=t.dirty.copy())
+        return dict(x=t.x.copy(), y=t.y.copy(), values=t.values.copy(),
+                    burned=t.burned.copy(), saved=t.saved.copy(),
+                    sent=t.sent.copy())
 
     def _restore(self, s):
         t = self.table
         axes_changed = (s["x"].shape != t.x.shape or s["y"].shape != t.y.shape
                         or not np.array_equal(s["x"], t.x) or not np.array_equal(s["y"], t.y))
-        t.x, t.y, t.values, t.dirty = s["x"].copy(), s["y"].copy(), s["values"].copy(), s["dirty"].copy()
+        t.x, t.y, t.values = s["x"].copy(), s["y"].copy(), s["values"].copy()
+        # the baselines travel with the snapshot, so the dirty marks after an
+        # undo are recomputed from them and can never go stale
+        t.burned, t.saved, t.sent = (s["burned"].copy(), s["saved"].copy(),
+                                     s["sent"].copy())
         if axes_changed: self.model.reset_axes()
         else: self.model.refresh()
         self._refresh_info(); self.changed.emit(); self.surface.update()
@@ -372,10 +391,11 @@ class TableEditor(QWidget):
     def _apply(self, fn):
         sel = self._selection()
         if sel is None: return
-        before = self.table.values.copy()
         self.push_undo()
         fn(sel)
-        self.table.dirty |= (self.table.values != before)
+        # bulk operations clamp rather than refuse: a scale that would push a
+        # few cells past the limit still does the useful thing
+        self.table.values[:] = self.table.clip(self.table.values)
         self.model.refresh()
 
     def bump(self, sign: int, big: bool = False):
@@ -392,7 +412,8 @@ class TableEditor(QWidget):
         v0 = float(cur.data(Qt.EditRole)) if cur.isValid() else 0.0
         v, ok = QInputDialog.getDouble(self, "Set Selection",
                                        f"Value ({self.table.unit or self.table.title}):",
-                                       v0, -1e9, 1e9, self.model.decimals())
+                                       v0, self.table.lo, self.table.hi,
+                                       self.model.decimals())
         if ok: self._apply(lambda sel: ops.set_value(self.table.values, sel[0], v))
 
     def interpolate(self):
@@ -413,14 +434,13 @@ class TableEditor(QWidget):
             return
         j_top, i_left = sel[1][1], sel[1][2]         # top-left of the selection on screen
         t = self.table
-        before = t.values.copy()
+        block = t.clip(block)
         self.push_undo()
         for r in range(block.shape[0]):
             for c in range(block.shape[1]):
                 j, i = j_top - r, i_left + c
                 if 0 <= j < t.n_y and 0 <= i < t.n_x:
                     t.values[j, i] = block[r, c]
-        t.dirty |= (t.values != before)
         self.model.refresh()
 
     def edit_axes(self):
@@ -428,9 +448,10 @@ class TableEditor(QWidget):
         if dlg.exec() != QDialog.Accepted: return
         t = self.table
         self.push_undo()
-        new_values = ops.regrid(t.values, t.x, t.y, dlg.result_x, dlg.result_y, t.lookup)
+        new_values = t.clip(ops.regrid(t.values, t.x, t.y,
+                                       dlg.result_x, dlg.result_y, t.lookup))
         t.x, t.y, t.values = dlg.result_x, dlg.result_y, new_values
-        t.dirty = np.ones_like(new_values, dtype=bool)
+        t.invalidate_baselines()
         self.model.reset_axes(); self._refresh_info()
         self.changed.emit(); self.surface.update()
 

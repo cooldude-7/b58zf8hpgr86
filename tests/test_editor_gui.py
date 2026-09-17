@@ -75,11 +75,24 @@ check("pasted cells are dirty", bool(tb.dirty[m.j_of(5), 5]) and bool(tb.dirty[m
 QTest.keyClick(v, Qt.Key_Z, Qt.ControlModifier)
 check("undo reverts the paste", np.array_equal(tb.values, base))
 
-select(3, 3, 3, 3); QTest.keyClick(v, Qt.Key_7); app.processEvents()
+select(3, 3, 3, 3); QTest.keyClick(v, Qt.Key_1); app.processEvents()
 editor = v.focusWidget()
-check("typing a digit opens the cell editor with that digit", editor is not v and getattr(editor, "text", lambda: "")() == "7")
+check("typing a digit opens the cell editor with that digit", editor is not v and getattr(editor, "text", lambda: "")() == "1")
 QTest.keyClick(editor, Qt.Key_Return); app.processEvents()
-check("Enter commits it", tb.values[m.j_of(3), 3] == 7.0 and bool(tb.dirty[m.j_of(3), 3]))
+check("Enter commits it", tb.values[m.j_of(3), 3] == 1.0 and bool(tb.dirty[m.j_of(3), 3]))
+
+# A value outside the table's physical bounds is refused at the keyboard:
+# 7.0 is not a volumetric efficiency, and nothing downstream should ever
+# have to cope with it.
+was = tb.values[m.j_of(4), 4]
+select(4, 4, 4, 4)
+for key in (Qt.Key_7,):
+    QTest.keyClick(v, key)
+app.processEvents()
+ed2 = v.focusWidget()
+QTest.keyClick(ed2, Qt.Key_Return); app.processEvents()
+check("a value outside the table bounds is refused",
+      tb.values[m.j_of(4), 4] == was, f"stayed {tb.values[m.j_of(4), 4]:.3f}")
 
 ed.show_3d(); app.processEvents()
 check("3D toggle switches the view", ed.stack.currentWidget() is ed.surface and ed.b3d.isChecked())

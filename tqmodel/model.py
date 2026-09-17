@@ -11,6 +11,12 @@ import numpy as np
 
 R_AIR = 0.287  # kJ/(kg*K)
 
+# Spark efficiency shape. Defined here and imported by anything that needs
+# it -- the shift coordinator included -- so there is one curve in the
+# system, not two that drift apart.
+SPARK_EFF_K = 1.096e-3
+SPARK_EFF_P = 1.8
+
 
 @dataclass
 class Engine:
@@ -53,10 +59,16 @@ def spark_efficiency(delta_from_mbt_deg):
     Near-universal curve -- ship this as a default and verify it on a dyno
     rather than authoring it per engine. Flat on top (a few degrees costs
     almost nothing), falling away steeply past ~15 degrees.
+
+    The exponent matters: MBT is by definition the maximum, so the curve
+    must have ZERO slope there. A form with a linear term says half a
+    degree of retard already costs torque, which makes the point it is
+    retarding from not the maximum. d**1.8 is flat at the origin and still
+    passes close to the usual anchors: 10 deg -> 0.93, 20 -> 0.76, 30 ->
+    0.50.
     """
     d = np.clip(np.asarray(delta_from_mbt_deg, dtype=float), 0.0, 60.0)
-    # fitted to the usual anchors: 10 deg -> ~0.91, 20 -> ~0.73, 30 -> ~0.50
-    return np.clip(1.0 - 6.667e-3 * d - 3.333e-4 * d ** 2, 0.0, 1.0)
+    return np.clip(1.0 - SPARK_EFF_K * d ** SPARK_EFF_P, 0.0, 1.0)
 
 
 def lambda_efficiency(lam):

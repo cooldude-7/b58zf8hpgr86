@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+test = ["pytest>=7"]
 build = ["pyinstaller"]
 sound = ["sounddevice"]
 
@@ -23,3 +24,9 @@ torquetune = "tuner.app:main"
 
 [tool.setuptools.packages.find]
 include = ["tqmodel*", "tuner*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# the narrative scripts are run by tests/test_scripts.py as subprocesses,
+# so pytest must not also collect them at import time
+addopts = "-q --ignore=tests/test_sim.py --ignore=tests/test_live.py --ignore=tests/test_editor_gui.py --ignore=tests/test_tableops.py"

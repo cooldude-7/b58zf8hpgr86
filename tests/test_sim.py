@@ -54,12 +54,22 @@ check("dyno holds the setpoint", abs(c["rpm"] - 4000) < 60, f"{c['rpm']:.0f}")
 check("WOT on the dyno: boost near target", c["boost"] > 10, f"{c['boost']:.1f} psi")
 check("authority is a fraction of torque", 0 < c["authority"] < c["torque"], f"{c['authority']:.0f} of {c['torque']:.0f}")
 
-# editing the tune changes the engine
-ve_before = c["torque"]
+# Editing the tune changes the engine -- through the FUEL, which is the
+# whole point: the VE table sizes the injection, the plant decides the air,
+# and the difference shows up in measured lambda. That is what makes the
+# table tunable instead of self-confirming.
+lam_before = c["lambda"]
 sim.tune.tables["ve"].values *= 0.85
 for _ in range(50): sim._step()
-check("lowering VE lowers torque on the next steps", sim._channels["torque"] < ve_before * 0.95,
-      f"{ve_before:.0f} -> {sim._channels['torque']:.0f}")
+lam_after = sim._channels["lambda"]
+check("lowering VE leans the mixture out",
+      lam_after > lam_before * 1.10,
+      f"lambda {lam_before:.3f} -> {lam_after:.3f}")
+sim.tune.tables["ve"].values /= 0.85
+for _ in range(50): sim._step()
+check("restoring VE restores lambda",
+      abs(sim._channels["lambda"] - lam_before) < 0.02,
+      f"back to {sim._channels['lambda']:.3f}")
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)
