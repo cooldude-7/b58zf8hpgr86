@@ -45,8 +45,48 @@ typedef enum {
  * retracting a dwell that has started would misfire. Returns false if the
  * request is already in the past. */
 bool hal_out_schedule(hal_out_t ch, tq_time_t on_us, tq_time_t off_us);
+
+/* A sequence of pulses on one channel, for multi-pulse injection.
+ * Direct injection splits the charge into two or three events per cycle,
+ * and they are close enough together that the CPU cannot be trusted to
+ * arm each one individually; the whole sequence is handed to the timer
+ * at once. Pulses must be in time order and must not overlap. */
+#define HAL_MAX_PULSES 3
+
+typedef struct {
+    tq_time_t on_us;
+    tq_time_t off_us;
+} hal_pulse_t;
+
+bool hal_out_schedule_pulses(hal_out_t ch, const hal_pulse_t *p, u8 n);
 void hal_out_cancel(hal_out_t ch);
 bool hal_out_is_active(hal_out_t ch);
+
+/* ---- injector drive -------------------------------------------------- */
+/* A direct injector is not a solenoid you switch on. It needs a large
+ * current spike to get the pintle off its seat against rail pressure,
+ * then a much smaller one to hold it there, and the spike comes from a
+ * boosted supply rather than from the battery. The pre-driver does the
+ * current control; this is how it is told what to do.
+ *
+ * The number that bites in multi-pulse operation is recharge_us: the
+ * boost capacitor has to refill between pulses, and a second pulse
+ * fired too soon opens the injector weakly or not at all. The scheduler
+ * checks it rather than discovering it as a lean cylinder.
+ */
+typedef struct {
+    u16 boost_v;          /* boosted supply for the peak phase */
+    u16 peak_ma;
+    u16 peak_us;          /* how long the peak phase lasts */
+    u16 hold_ma;
+    u16 recharge_us;      /* minimum gap between pulses on one injector */
+} hal_inj_drive_t;
+
+bool hal_inj_configure(hal_out_t ch, const hal_inj_drive_t *d);
+
+/* Measured boost rail voltage. Below the configured boost_v the
+ * injectors will not open properly and fuelling is not trustworthy. */
+u16 hal_inj_boost_voltage(void);
 
 /* ---- throttle -------------------------------------------------------- */
 void hal_throttle_pwm(f32 duty);       /* -1..1, sign is direction */

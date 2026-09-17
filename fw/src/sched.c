@@ -14,7 +14,9 @@ void sched_init(sched_t *s, u8 n_cyl)
         s->cyl[c].spark_enabled = true;
         s->cyl[c].fuel_enabled = true;
         s->cyl[c].dwell_us = 2500;
-        s->cyl[c].soi_deg = 300.0f;
+        s->cyl[c].n_pulses = 1;
+        s->cyl[c].pulse[0].soi_deg = 300.0f;
+        s->cyl[c].pulse[0].pw_us = 0;
     }
 }
 
@@ -38,11 +40,33 @@ void sched_set_spark(sched_t *s, u8 cyl, f32 advance_deg, u32 dwell_us)
 
 void sched_set_injection(sched_t *s, u8 cyl, f32 soi_deg, u32 pw_us)
 {
-    if (cyl >= s->n_cyl) {
-        return;
+    sched_pulse_t p = { soi_deg, pw_us };
+    sched_set_pulses(s, cyl, &p, 1);
+}
+
+bool sched_set_pulses(sched_t *s, u8 cyl, const sched_pulse_t *p, u8 n)
+{
+    if (cyl >= s->n_cyl || n == 0 || n > HAL_MAX_PULSES) {
+        return false;
     }
-    s->cyl[cyl].soi_deg = soi_deg;
-    s->cyl[cyl].pw_us = pw_us;
+    /* Earliest first means DECREASING degrees before top dead centre.
+     * Getting this backwards puts the main charge in before the pilot,
+     * which is a different engine entirely. */
+    for (u8 i = 1; i < n; i++) {
+        if (p[i].soi_deg >= p[i - 1].soi_deg) {
+            s->rejected_patterns++;
+            return false;
+        }
+    }
+    sched_cyl_t *cy = &s->cyl[cyl];
+    for (u8 i = 0; i < n; i++) {
+        cy->pulse[i] = p[i];
+    }
+    for (u8 i = n; i < HAL_MAX_PULSES; i++) {
+        cy->pulse[i].pw_us = 0;
+    }
+    cy->n_pulses = n;
+    return true;
 }
 
 void sched_enable_spark(sched_t *s, bool on)
@@ -135,17 +159,49 @@ void sched_update(sched_t *s, const decoder_t *d, tq_time_t now_us)
         }
 
         /* ---- injection ------------------------------------------------ */
-        f32 open_at = tq_wrap_deg(cy->tdc_deg - cy->soi_deg);
+        /* The whole sequence is armed together, off the first pulse's
+         * angle. Arming them one at a time would mean deciding the
+         * second pulse while the first is already flowing, with no time
+         * left to get it wrong safely. */
+        u8 n_live = 0;
+        for (u8 k = 0; k < cy->n_pulses; k++) {
+            if (cy->pulse[k].pw_us > 0) {
+                n_live++;
+            }
+        }
+        f32 first_soi = cy->n_pulses ? cy->pulse[0].soi_deg : 0.0f;
+        f32 open_at = tq_wrap_deg(cy->tdc_deg - first_soi);
         f32 to_open = tq_wrap_deg(open_at - now_angle);
 
-        if (!cy->fuel_armed && cy->fuel_enabled && cy->pw_us > 0
+        if (!cy->fuel_armed && cy->fuel_enabled && n_live > 0
             && to_open <= s->lookahead_deg) {
-            tq_time_t open_us;
-            if (decoder_time_for_angle(d, now_us, open_at, &open_us)) {
-                if (hal_out_schedule((hal_out_t)(HAL_OUT_INJ_1 + c),
-                                     open_us, open_us + cy->pw_us)) {
+            hal_pulse_t hp[HAL_MAX_PULSES];
+            u8 n = 0;
+            bool ok = true;
+            for (u8 k = 0; k < cy->n_pulses && ok; k++) {
+                if (cy->pulse[k].pw_us == 0) {
+                    continue;
+                }
+                f32 a = tq_wrap_deg(cy->tdc_deg - cy->pulse[k].soi_deg);
+                tq_time_t t0;
+                if (!decoder_time_for_angle(d, now_us, a, &t0)) {
+                    ok = false;
+                    break;
+                }
+                hp[n].on_us = t0;
+                hp[n].off_us = t0 + cy->pulse[k].pw_us;
+                n++;
+            }
+            if (ok && n > 0) {
+                if (hal_out_schedule_pulses((hal_out_t)(HAL_OUT_INJ_1 + c),
+                                            hp, n)) {
                     cy->fuel_armed = true;
                     s->fuel_events++;
+                } else {
+                    /* Too close together for the boost supply, or out of
+                     * order. Say so: silently dropping it is a lean
+                     * cylinder nobody can explain. */
+                    s->rejected_patterns++;
                 }
             }
         } else if (cy->fuel_armed && !cy->fuel_enabled) {

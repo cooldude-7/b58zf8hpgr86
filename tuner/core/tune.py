@@ -19,7 +19,18 @@ SCHEMA_VERSION = 1
 
 # Tables the ECU cannot run without. A tune missing any of these is refused
 # at load rather than crashing the control loop a hundred times a second.
-REQUIRED_TABLES = ("ve", "mbt", "knock", "lambda", "base_torque", "boost")
+# Tables the engine cannot run without and which no version has ever
+# been without. A tune missing one of these is corrupt, not old, and is
+# refused rather than quietly patched: defaulting someone's knock table
+# is not a kindness.
+CORE_TABLES = ("ve", "mbt", "knock", "lambda", "base_torque", "boost")
+
+# Tables added after the first release. A tune written before they
+# existed is merely old, so these are filled from the defaults and the
+# user is told which.
+ADDED_TABLES = ("rail_target", "soi", "inj_split")
+
+REQUIRED_TABLES = CORE_TABLES + ADDED_TABLES
 
 # Physical bounds per table. Outside these a value is not a calibration
 # choice, it is a typo.
@@ -30,6 +41,12 @@ LIMITS = {
     "lambda":      (0.50, 1.60),
     "base_torque": (-200.0, 1200.0),
     "boost":       (0.0, 45.0),
+    # direct injection. Rail pressure in kPa absolute: a B48 runs up to
+    # about 200 bar, and the injector flow scales with the square root of
+    # what is left after cylinder pressure is subtracted.
+    "rail_target": (3000.0, 25000.0),
+    "soi":         (60.0, 480.0),      # degrees BTDC of firing TDC
+    "inj_split":   (0.0, 0.6),         # fraction of the charge in the pilot
 }
 
 # Engine scalars: (lo, hi) for each, all required.
@@ -48,6 +65,16 @@ ENGINE_LIMITS = {
     "trigger_gap_to_tdc_deg": (0.0, 360.0),
     "cam_edge_angle_deg": (0.0, 720.0), "cam_tolerance_deg": (1.0, 90.0),
     "dwell_ms": (0.5, 8.0), "soi_btdc_deg": (0.0, 720.0),
+    # direct injector drive. A DI injector is opened by a current spike
+    # from a boosted supply, not by switching battery voltage at it.
+    "inj_boost_v": (30.0, 120.0), "inj_peak_ma": (2000.0, 25000.0),
+    "inj_peak_us": (50.0, 2000.0), "inj_hold_ma": (500.0, 8000.0),
+    "inj_recharge_us": (0.0, 3000.0), "split_gap_deg": (10.0, 180.0),
+    # high pressure pump
+    "hpfp_lobes": (1.0, 6.0), "hpfp_lobe_span_deg": (30.0, 240.0),
+    "hpfp_first_lobe_deg": (0.0, 720.0), "msv_hold_us": (200.0, 5000.0),
+    "hpfp_capacity_g_s": (1.0, 60.0), "rail_volume_cc": (1.0, 200.0),
+    "inj_window_deg": (60.0, 480.0),
 }
 
 
@@ -182,6 +209,16 @@ class Tune:
             if name not in engine and name in defaults:
                 engine[name] = defaults[name]
                 upgraded.append(name)
+        core_missing = [k for k in CORE_TABLES if k not in tables]
+        if core_missing:
+            raise TuneError("tune is missing required tables: "
+                            + ", ".join(core_missing))
+        missing_tables = [k for k in ADDED_TABLES if k not in tables]
+        if missing_tables:
+            stock = default_tune()
+            for k in missing_tables:
+                tables[k] = Table.from_dict(stock.tables[k].to_dict())
+                upgraded.append(f"table {k}")
         t = cls(name=str(d["name"]), engine=engine, tables=tables, path=path,
                 upgraded=upgraded)
         t.validate()
@@ -226,6 +263,14 @@ def default_tune() -> Tune:
     rpm_curve = np.interp(RPM_AXIS, [800, 2000, 3000, 4500, 6000, 7500], [0, 2, 14, 16, 15, 12])
     boost = np.vstack([rpm_curve * f for f in (0.0, 0.15, 0.6, 1.0)])
 
+    # Direct injection tables. Rail pressure rises with load because the
+    # injector has less time and more cylinder pressure to fight; start
+    # of injection moves earlier with speed for the same reason.
+    rail = np.clip(5000.0 + 45.0 * (M - 30.0) + 0.7 * R, 4000.0, 20000.0)
+    soi = np.clip(300.0 + 0.004 * R - 0.05 * (M - 100.0), 240.0, 340.0)
+    # a pilot pulse only where mixing time is short: high load, high speed
+    split = np.where((M > 140.0) & (R > 3000.0), 0.30, 0.0)
+
     tables = {
         "boost": Table("boost", "Boost Target", "RPM", "rpm", "Throttle", "%",
                        RPM_AXIS, TPS_AXIS, boost, unit="psi", fmt="{:.1f}", step=0.5, lo=LIMITS["boost"][0], hi=LIMITS["boost"][1]),
@@ -240,6 +285,17 @@ def default_tune() -> Tune:
         "base_torque": Table("base_torque", "Base Torque", "RPM", "rpm",
                              "Air mass", "g/cyl", RPM_AXIS, AIR_AXIS, bt,
                              unit="Nm", fmt="{:.0f}", step=1.0, lo=LIMITS["base_torque"][0], hi=LIMITS["base_torque"][1]),
+        "rail_target": Table("rail_target", "Rail Pressure Target", "RPM", "rpm",
+                             "MAP", "kPa", RPM_AXIS, MAP_AXIS, rail,
+                             unit="kPa", fmt="{:.0f}", step=100.0,
+                             lo=LIMITS["rail_target"][0], hi=LIMITS["rail_target"][1]),
+        "soi": Table("soi", "Injection Timing", "RPM", "rpm", "MAP", "kPa",
+                     RPM_AXIS, MAP_AXIS, soi, unit="° BTDC", fmt="{:.0f}",
+                     step=5.0, lo=LIMITS["soi"][0], hi=LIMITS["soi"][1]),
+        "inj_split": Table("inj_split", "Pilot Fraction", "RPM", "rpm",
+                           "MAP", "kPa", RPM_AXIS, MAP_AXIS, split,
+                           unit="", fmt="{:.2f}", step=0.05,
+                           lo=LIMITS["inj_split"][0], hi=LIMITS["inj_split"][1]),
     }
     engine = default_engine(eng)
     return Tune(name="B48 base", engine=engine, tables=tables).validate()
@@ -267,4 +323,12 @@ def default_engine(eng=None) -> dict:
         "trigger_gap_to_tdc_deg": 114.0,
         "cam_edge_angle_deg": 90.0, "cam_tolerance_deg": 25.0,
         "dwell_ms": 2.5, "soi_btdc_deg": 300.0,
+        # direct injection, PROVISIONAL like the trigger numbers
+        "inj_boost_v": 65.0, "inj_peak_ma": 12000.0, "inj_peak_us": 400.0,
+        "inj_hold_ma": 3500.0, "inj_recharge_us": 300.0,
+        "split_gap_deg": 60.0,
+        "hpfp_lobes": 3.0, "hpfp_lobe_span_deg": 120.0,
+        "hpfp_first_lobe_deg": 0.0, "msv_hold_us": 1500.0,
+        "hpfp_capacity_g_s": 22.0, "rail_volume_cc": 22.0,
+        "inj_window_deg": 240.0,
     }

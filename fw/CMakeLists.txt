@@ -40,7 +40,7 @@ target_link_libraries(ecu_host PRIVATE tqcore)
 enable_testing()
 
 set(TQ_TESTS test_decoder test_sched test_model test_fuel test_monitor test_ecu
-             test_proto)
+             test_proto test_di)
 foreach(t ${TQ_TESTS})
     add_executable(${t} tests/${t}.c)
     target_include_directories(${t} PRIVATE tests)

@@ -16,13 +16,22 @@
 #include "hal.h"
 #include "tq_types.h"
 
+/* One injection event. A direct injection engine uses two or three per
+ * cycle: a pilot early in the intake stroke for mixing, the main charge
+ * behind it, and on a cold start a late one to put a rich cloud at the
+ * plug. Port injection uses one and leaves the rest at zero. */
+typedef struct {
+    f32 soi_deg;           /* start of injection, degrees BTDC of its TDC */
+    u32 pw_us;
+} sched_pulse_t;
+
 typedef struct {
     f32 tdc_deg;           /* this cylinder's firing TDC in the 720 frame */
     /* requested, in the angle domain */
     f32 spark_advance;     /* degrees BTDC */
     u32 dwell_us;
-    f32 soi_deg;           /* start of injection, degrees BTDC of its TDC */
-    u32 pw_us;             /* injector pulse width */
+    sched_pulse_t pulse[HAL_MAX_PULSES];
+    u8 n_pulses;
     bool spark_enabled;
     bool fuel_enabled;
     /* armed state */
@@ -43,6 +52,7 @@ typedef struct {
     u32 spark_events;
     u32 fuel_events;
     u32 missed_events;
+    u32 rejected_patterns;   /* injection sequences the hardware refused */
 } sched_t;
 
 void sched_init(sched_t *s, u8 n_cyl);
@@ -52,7 +62,14 @@ void sched_init(sched_t *s, u8 n_cyl);
 void sched_set_tdc(sched_t *s, u8 cyl, f32 tdc_deg);
 
 void sched_set_spark(sched_t *s, u8 cyl, f32 advance_deg, u32 dwell_us);
+/* Single pulse: the simple case, and what port injection uses. */
 void sched_set_injection(sched_t *s, u8 cyl, f32 soi_deg, u32 pw_us);
+
+/* Two or three pulses, earliest first. Returns false if they do not fit
+ * (out of order, overlapping, or too close for the injector's boost
+ * supply to recover), in which case the previous set is kept: a
+ * half-applied injection pattern is worse than an old one. */
+bool sched_set_pulses(sched_t *s, u8 cyl, const sched_pulse_t *p, u8 n);
 
 /* Global enables. Cutting fuel leaves the coils alone; cutting spark on a
  * running engine dumps raw fuel into the exhaust, so a torque cut uses

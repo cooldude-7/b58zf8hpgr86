@@ -142,7 +142,7 @@ def test_a_tune_missing_a_table_is_refused_before_it_is_swapped_in(win, tmp_path
     p = tmp_path / "bad.tune"
     win.tune.save(p)
     d = json.loads(p.read_text())
-    del d["tables"]["knock"]
+    del d["tables"]["knock"]          # a core table: must be refused
     p.write_text(json.dumps(d))
     good = win.tune.tables["ve"].values.copy()
     with pytest.raises(Exception):

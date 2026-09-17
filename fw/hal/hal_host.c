@@ -26,7 +26,14 @@ typedef struct {
     bool active;
     tq_time_t on_us;
     tq_time_t off_us;
+    /* queued pulses beyond the one currently armed */
+    hal_pulse_t queue[HAL_MAX_PULSES];
+    u8 queued;
+    u8 next;
 } out_state_t;
+
+static hal_inj_drive_t g_inj[HAL_OUT_COUNT];
+static u16 g_boost_v = 65;
 
 static out_state_t g_out[HAL_OUT_COUNT];
 
@@ -36,6 +43,8 @@ u32 hal_host_event_count;
 void hal_host_reset(void)
 {
     memset(g_out, 0, sizeof(g_out));
+    memset(g_inj, 0, sizeof(g_inj));
+    g_boost_v = 65;
     memset(g_adc, 0, sizeof(g_adc));
     hal_host_event_count = 0;
     g_now = 1000000u;
@@ -87,8 +96,19 @@ void hal_host_advance_to(tq_time_t t)
             record((hal_out_t)next, true, best);
         } else {
             g_out[next].active = false;
-            g_out[next].armed = false;
             record((hal_out_t)next, false, best);
+            out_state_t *o = &g_out[next];
+            if (o->next < o->queued) {
+                /* next pulse of the sequence */
+                o->on_us = o->queue[o->next].on_us;
+                o->off_us = o->queue[o->next].off_us;
+                o->next++;
+                o->armed = true;
+            } else {
+                o->armed = false;
+                o->queued = 0;
+                o->next = 0;
+            }
         }
     }
     g_now = t;
@@ -145,11 +165,69 @@ bool hal_out_schedule(hal_out_t ch, tq_time_t on_us, tq_time_t off_us)
     return true;
 }
 
+bool hal_out_schedule_pulses(hal_out_t ch, const hal_pulse_t *p, u8 n)
+{
+    if (ch >= HAL_OUT_COUNT || n == 0 || n > HAL_MAX_PULSES) {
+        return false;
+    }
+    out_state_t *o = &g_out[ch];
+    if (o->active) {
+        return false;                /* mid-pulse: do not rewrite a sequence */
+    }
+    for (u8 i = 0; i < n; i++) {
+        if (!tq_after(p[i].off_us, p[i].on_us)) {
+            return false;            /* zero or negative width */
+        }
+        if (i && !tq_after(p[i].on_us, p[i - 1].off_us)) {
+            return false;            /* overlapping or out of order */
+        }
+        /* the boost rail has to refill between pulses */
+        if (i && (u32)(p[i].on_us - p[i - 1].off_us) < g_inj[ch].recharge_us) {
+            return false;
+        }
+    }
+    if (!tq_after(p[0].on_us, g_now)) {
+        return false;
+    }
+    o->on_us = p[0].on_us;
+    o->off_us = p[0].off_us;
+    o->armed = true;
+    o->queued = n;
+    o->next = 1;
+    for (u8 i = 0; i < n; i++) {
+        o->queue[i] = p[i];
+    }
+    return true;
+}
+
+bool hal_inj_configure(hal_out_t ch, const hal_inj_drive_t *d)
+{
+    if (ch >= HAL_OUT_COUNT || d == 0) {
+        return false;
+    }
+    if (d->peak_ma <= d->hold_ma || d->peak_us == 0 || d->boost_v == 0) {
+        return false;                /* not a peak-and-hold profile */
+    }
+    g_inj[ch] = *d;
+    return true;
+}
+
+u16 hal_inj_boost_voltage(void) { return g_boost_v; }
+
+void hal_host_set_boost_voltage(u16 v) { g_boost_v = v; }
+
+const hal_inj_drive_t *hal_host_inj_drive(hal_out_t ch)
+{
+    return ch < HAL_OUT_COUNT ? &g_inj[ch] : 0;
+}
+
 void hal_out_cancel(hal_out_t ch)
 {
     if (ch < HAL_OUT_COUNT) {
         g_out[ch].armed = false;
         g_out[ch].active = false;
+        g_out[ch].queued = 0;
+        g_out[ch].next = 0;
     }
 }
 

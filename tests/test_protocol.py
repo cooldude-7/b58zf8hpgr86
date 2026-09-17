@@ -124,7 +124,8 @@ def test_a_tune_file_containing_nan_is_refused(tmp_path, tune):
         Tune.load(p)
 
 
-def test_a_tune_missing_a_required_table_is_refused(tmp_path, tune):
+def test_a_tune_missing_a_core_table_is_refused(tmp_path, tune):
+    """Defaulting somebody's knock table is not a kindness."""
     p = tmp_path / "t.tune"
     tune.save(p)
     d = json.loads(p.read_text())
@@ -132,6 +133,18 @@ def test_a_tune_missing_a_required_table_is_refused(tmp_path, tune):
     p.write_text(json.dumps(d))
     with pytest.raises(TuneError):
         Tune.load(p)
+
+
+def test_a_tune_missing_a_later_table_is_upgraded(tmp_path, tune):
+    """Tables added after a tune was written make it old, not corrupt."""
+    p = tmp_path / "t.tune"
+    tune.save(p)
+    d = json.loads(p.read_text())
+    del d["tables"]["rail_target"]
+    p.write_text(json.dumps(d))
+    back = Tune.load(p)
+    assert "table rail_target" in back.upgraded
+    assert back.tables["rail_target"].values.max() > 0
 
 
 def test_a_tune_with_a_short_chen_flynn_list_is_refused(tmp_path, tune):
@@ -183,3 +196,11 @@ def test_a_loaded_tune_starts_clean(tmp_path, tune):
 
 def test_the_default_tune_validates():
     default_tune().validate()
+
+
+# ---- direct injection ----------------------------------------------------
+def test_the_di_tables_reach_the_ecu(sim, tune):
+    for key in ("rail_target", "soi", "inj_split"):
+        assert key in sim.describe_tables()
+        got = sim.read_table(key)
+        assert got.shape == tune.tables[key].values.shape

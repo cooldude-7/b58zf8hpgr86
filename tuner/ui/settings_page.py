@@ -21,6 +21,19 @@ FIELDS = {
     "cam_tolerance_deg": ("Cam tolerance", "°", 1.0, 90.0, 1, 1.0),
     "dwell_ms": ("Dwell", "ms", 0.5, 8.0, 2, 0.1),
     "soi_btdc_deg": ("Start of injection, BTDC", "°", 0.0, 720.0, 1, 5.0),
+    "inj_boost_v": ("Boost supply", "V", 30.0, 120.0, 0, 1.0),
+    "inj_peak_ma": ("Peak current", "mA", 2000.0, 25000.0, 0, 100.0),
+    "inj_peak_us": ("Peak duration", "µs", 50.0, 2000.0, 0, 10.0),
+    "inj_hold_ma": ("Hold current", "mA", 500.0, 8000.0, 0, 50.0),
+    "inj_recharge_us": ("Boost recharge", "µs", 0.0, 3000.0, 0, 25.0),
+    "inj_window_deg": ("Injection window", "°", 60.0, 480.0, 0, 10.0),
+    "split_gap_deg": ("Split pulse gap", "°", 10.0, 180.0, 0, 5.0),
+    "hpfp_lobes": ("Pump lobes per cycle", "", 1.0, 6.0, 0, 1.0),
+    "hpfp_lobe_span_deg": ("Pumping stroke", "°", 30.0, 240.0, 0, 5.0),
+    "hpfp_first_lobe_deg": ("First lobe at", "°", 0.0, 720.0, 0, 5.0),
+    "msv_hold_us": ("Valve hold", "µs", 200.0, 5000.0, 0, 50.0),
+    "hpfp_capacity_g_s": ("Pump capacity", "g/s", 1.0, 60.0, 1, 0.5),
+    "rail_volume_cc": ("Rail volume", "cc", 1.0, 200.0, 0, 1.0),
     "boost_max_kpa": ("Boost ceiling", "kPa abs", 100.0, 400.0, 0, 5.0),
     "overboost_cut_kpa": ("Overboost cut", "kPa abs", 100.0, 450.0, 0, 5.0),
     "max_cut_retard": ("Max cut retard", "°", 5.0, 60.0, 1, 1.0),
@@ -29,6 +42,12 @@ FIELDS = {
 # Shown at the top of a page when the numbers on it are not yet
 # measurements. Better a banner than a footnote nobody reads.
 WARNINGS = {
+    "di": ("A direct injector is opened by a current spike from a boosted "
+           "supply, not by switching battery voltage at it, and the pump is "
+           "driven in strokes off a cam lobe. These numbers must come from "
+           "the injector and pump data sheets and a scope, not from a guess. "
+           "The boost recharge time in particular decides whether a split "
+           "injection works at all."),
     "trigger": ("These are placeholders, not measurements. The crank wheel, "
                 "the gap position and both cam patterns must be confirmed "
                 "with a scope on the real engine before the ECU is allowed "
@@ -48,6 +67,12 @@ PAGES = {
                 ("Event timing", ["dwell_ms", "soi_btdc_deg"])],
     "limits": [("Boost", ["boost_max_kpa", "overboost_cut_kpa"]),
                ("Torque cut", ["max_cut_retard"])],
+    "di": [("Injector drive", ["inj_boost_v", "inj_peak_ma", "inj_peak_us",
+                               "inj_hold_ma", "inj_recharge_us"]),
+           ("Injection", ["inj_window_deg", "split_gap_deg"]),
+           ("High pressure pump", ["hpfp_lobes", "hpfp_lobe_span_deg",
+                                   "hpfp_first_lobe_deg", "msv_hold_us",
+                                   "hpfp_capacity_g_s", "rail_volume_cc"])],
 }
 
 

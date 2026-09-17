@@ -32,7 +32,10 @@ f32 tq_fuel_mass(f32 air_g, f32 lambda_target, const tq_engine_t *e);
 u32 tq_pulse_width_us(f32 fuel_g, f32 rail_kpa, f32 cylinder_kpa,
                       f32 battery_v, const tq_injector_t *inj);
 
-f32 tq_injector_duty(u32 pw_us, f32 rpm);
+/* Duty against the crank window injection can actually use, not against
+ * the whole cycle. Measuring a direct injector against 720 degrees makes
+ * it look about three times larger than it is. */
+f32 tq_injector_duty(u32 pw_us, f32 rpm, f32 window_deg);
 
 /* ---- high pressure pump --------------------------------------------- */
 typedef struct {
@@ -51,5 +54,29 @@ void tq_hpfp_init(tq_hpfp_t *h, f32 lobes_per_cycle);
  * Returns the spill-valve close fraction, 0..1. */
 f32 tq_hpfp_update(tq_hpfp_t *h, f32 dt_s, f32 measured_kpa,
                    f32 demand_g_per_cycle);
+
+/* Where the pump's lobes sit, and how the duty becomes an angle.
+ *
+ * The pump is driven off a cam lobe, so it delivers in discrete strokes
+ * rather than continuously. A spill valve holds the chamber open to the
+ * low pressure side; closing it part way through a stroke is what sends
+ * fuel to the rail, and the later it closes the less goes. That makes
+ * pump control an angle-domain problem, which is why it needs the
+ * decoder and why it cannot be done with a plain PWM output.
+ */
+typedef struct {
+    f32 lobes_per_cycle;   /* three on a B48: cam lobes per 720 crank deg */
+    f32 first_lobe_deg;    /* crank angle where the first stroke begins */
+    f32 lobe_span_deg;     /* crank angle the pumping stroke covers */
+    u32 valve_hold_us;     /* how long the valve is energised to close it */
+} tq_hpfp_sched_t;
+
+tq_hpfp_sched_t tq_hpfp_sched_default(void);
+
+/* The crank angle at which the valve must close to deliver `duty` of a
+ * full stroke, for the next lobe at or after `after_deg`. Returns false
+ * when the duty is too low to be worth a stroke at all. */
+bool tq_hpfp_close_angle(const tq_hpfp_sched_t *cfg, f32 duty,
+                         f32 after_deg, f32 *close_deg);
 
 #endif /* TQ_FUEL_H */

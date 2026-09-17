@@ -15,18 +15,35 @@ void ecu_init(ecu_t *e)
     sched_set_tdc(&e->sch, 2, 360.0f);
     sched_set_tdc(&e->sch, 3, 540.0f);
     tq_monitor_reset(&e->mon);
-    tq_hpfp_init(&e->hpfp, 3.0f);
+    e->hpfp_sched = tq_hpfp_sched_default();
+    tq_hpfp_init(&e->hpfp, e->hpfp_sched.lobes_per_cycle);
+    /* A direct injector needs a current profile, not an on/off signal.
+     * These are the driver's defaults; the tune overrides them. */
+    e->inj_drive.boost_v = 65;
+    e->inj_drive.peak_ma = 12000;
+    e->inj_drive.peak_us = 400;
+    e->inj_drive.hold_ma = 3500;
+    e->inj_drive.recharge_us = 300;
     e->engine = tq_engine_default();
     e->injector = tq_injector_default();
     e->rev_limit = 7200.0f;
     e->overboost_kpa = 265.0f;
     e->max_cut_retard = 35.0f;
+    e->engine_dwell_ms = 2.5f;
+    e->split_gap_deg = 60.0f;
     e->sig.state = ECU_OFF;
     e->sig.lambda_target = 1.0f;
     e->sig.battery_v = 13.8f;
     e->sig.rail_kpa = 500.0f;
     e->sig.iat_k = 298.0f;
     e->sig.clt_k = 293.0f;
+    e->sig.rail_target_kpa = 8000.0f;
+    e->sig.soi_deg = 300.0f;
+    e->sig.split_first = 0.0f;       /* single pulse until asked otherwise */
+    e->sig.n_pulses = 1;
+    for (u8 c = 0; c < e->sch.n_cyl; c++) {
+        hal_inj_configure((hal_out_t)(HAL_OUT_INJ_1 + c), &e->inj_drive);
+    }
 }
 
 void ecu_on_crank_edge(ecu_t *e, tq_time_t t)
@@ -35,6 +52,38 @@ void ecu_on_crank_edge(ecu_t *e, tq_time_t t)
     /* Re-arm immediately: waiting for the 1 ms task would put the arming
      * up to a millisecond late, which at 7000 rpm is 42 degrees. */
     sched_update(&e->sch, &e->dec, t);
+    ecu_schedule_pump(e, t);
+}
+
+void ecu_schedule_pump(ecu_t *e, tq_time_t now_us)
+{
+    /* The pump valve is an angle-domain event like spark and injection,
+     * not a PWM output: it has to close part way through a specific cam
+     * lobe, so it needs phase just as much as the injectors do. */
+    if (!e->hpfp.enabled || !decoder_has_phase(&e->dec)) {
+        return;
+    }
+    if (hal_out_is_active(HAL_OUT_HPFP_MSV)) {
+        return;
+    }
+    f32 now_angle = decoder_angle_at(&e->dec, now_us);
+    f32 close_deg;
+    if (!tq_hpfp_close_angle(&e->hpfp_sched, e->hpfp.duty, now_angle,
+                             &close_deg)) {
+        return;
+    }
+    f32 ahead = tq_wrap_deg(close_deg - now_angle);
+    if (ahead > 60.0f) {
+        return;                     /* not yet: arm it nearer the time */
+    }
+    tq_time_t at;
+    if (!decoder_time_for_angle(&e->dec, now_us, close_deg, &at)) {
+        return;
+    }
+    if (hal_out_schedule(HAL_OUT_HPFP_MSV, at,
+                         at + e->hpfp_sched.valve_hold_us)) {
+        e->sig.msv_events++;
+    }
 }
 
 void ecu_on_cam_edge(ecu_t *e, tq_time_t t)
@@ -89,6 +138,10 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     s->pw_us = tq_pulse_width_us(fuel_g, s->rail_kpa, s->map_kpa,
                                  s->battery_v, &e->injector);
 
+    /* A sagging boost rail means the injectors are not opening properly
+     * and the fuelling number above is fiction. */
+    s->boost_low = hal_inj_boost_voltage() < (u16)(e->inj_drive.boost_v * 8 / 10);
+
     /* ---- hard limits --------------------------------------------------- */
     e->fuel_cut = (s->rpm > e->rev_limit) || (s->map_kpa > e->overboost_kpa);
     e->spark_cut = false;
@@ -121,9 +174,24 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     apply_cuts(e);
 
     /* ---- hand the scheduler its numbers -------------------------------- */
+    u32 total_pw = e->fuel_cut ? 0u : s->pw_us;
     for (u8 c = 0; c < e->sch.n_cyl; c++) {
-        sched_set_spark(&e->sch, c, spark, 2500);
-        sched_set_injection(&e->sch, c, 300.0f, e->fuel_cut ? 0u : s->pw_us);
+        sched_set_spark(&e->sch, c, spark, (u32)(e->engine_dwell_ms * 1000.0f));
+        if (s->n_pulses >= 2 && s->split_first > 0.01f && total_pw > 0) {
+            /* Split the charge: a pilot early for mixing, the rest
+             * behind it. The gap has to clear the injector's recharge
+             * time or the second pulse will not open properly. */
+            sched_pulse_t p[2];
+            p[0].soi_deg = s->soi_deg;
+            p[0].pw_us = (u32)((f32)total_pw * s->split_first);
+            p[1].soi_deg = s->soi_deg - e->split_gap_deg;
+            p[1].pw_us = total_pw - p[0].pw_us;
+            if (!sched_set_pulses(&e->sch, c, p, 2)) {
+                sched_set_injection(&e->sch, c, s->soi_deg, total_pw);
+            }
+        } else {
+            sched_set_injection(&e->sch, c, s->soi_deg, total_pw);
+        }
     }
 }
 
@@ -135,6 +203,7 @@ void ecu_slow_task(ecu_t *e, f32 dt_s)
     /* The pump only runs with the engine turning: spinning it against a
      * closed system with no injection is how a rail gets broken. */
     e->hpfp.enabled = (s->state == ECU_RUNNING || s->state == ECU_CRANKING);
+    e->hpfp.target_kpa = s->rail_target_kpa;
     f32 demand = tq_fuel_mass(s->air_g, s->lambda_target, &e->engine)
                  * (f32)e->engine.n_cyl;
     tq_hpfp_update(&e->hpfp, dt_s, s->rail_kpa, demand);

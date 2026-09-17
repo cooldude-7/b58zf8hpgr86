@@ -17,7 +17,7 @@
 
 #define CAL_MAX_X 24
 #define CAL_MAX_Y 20
-#define CAL_MAX_TABLES 8
+#define CAL_MAX_TABLES 16
 #define CAL_NAME_LEN 16
 
 typedef struct {

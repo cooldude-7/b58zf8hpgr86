@@ -46,6 +46,12 @@ CHANNELS = [
     ("inj_duty",  "Inj duty",    "%",     0),
     ("fuel_mass", "Fuel mass",   "mg",    1),
     ("rail_kpa",  "Rail press.", "kPa",   0),
+    ("rail_target", "Rail target", "kPa",  0),
+    ("rail_error", "Rail error",  "kPa",   0),
+    ("hpfp_duty", "Pump duty",    "%",     0),
+    ("soi",       "Inj. timing",  "° BTDC", 0),
+    ("inj_split", "Pilot frac.",  "",      2),
+    ("inj_pulses", "Inj. pulses", "",      0),
     # knock
     ("knock_retard", "Knock ret.", "°",   1),
     ("knock_count",  "Knock ct",   "",    0),

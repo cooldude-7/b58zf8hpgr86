@@ -294,3 +294,81 @@ def test_the_inhibit_marker_does_not_latch_forever(sim):
     sim.request_shift(False)
     assert sim.shift is not None
     assert sim.shift_inhibit == 0.0
+
+
+# ---- direct injection behaviour ------------------------------------------
+def test_rail_pressure_follows_its_target(sim):
+    sim.pedal = 0.5
+    for _ in range(900):
+        sim._step()
+    ch = sim.channels()
+    assert abs(ch["rail_error"]) < 500.0, (
+        f"rail {ch['rail_kpa']:.0f} against target {ch['rail_target']:.0f}")
+    assert 0.0 < ch["hpfp_duty"] < 100.0
+
+
+def test_an_undersized_pump_droops_the_rail(sim, tune):
+    """The failure that is invisible unless the rail is modelled: the
+    injectors outrun the pump, every pulse delivers less than planned,
+    and the engine leans out at full load."""
+    from tuner.core.sim_ecu import SimulatedECU
+
+    weak = tune
+    weak.engine["hpfp_capacity_g_s"] = 6.0
+    s = SimulatedECU(weak)
+    s.connect_ecu()
+    s.pedal = 1.0
+    for _ in range(900):
+        s._step()
+    ch = s.channels()
+    s.disconnect_ecu()
+    assert ch["rail_error"] < -2000.0, "an undersized pump held full pressure"
+    assert ch["hpfp_duty"] >= 99.0, "the pump was not even at full duty"
+    assert ch["pw_ms"] > 2.0, "pulse width did not compensate for the droop"
+
+
+def test_pulse_width_compensates_for_rail_pressure(sim):
+    """Flow goes as the square root of the pressure drop, so a rail that
+    has drooped needs a longer pulse for the same fuel. An ECU that uses
+    a nominal rail pressure instead of the measured one runs lean here."""
+    sim.pedal = 0.6
+    for _ in range(600):
+        sim._step()
+    strong = sim.channels()["pw_ms"]
+    sim.tune.engine["hpfp_capacity_g_s"] = 5.0
+    for _ in range(600):
+        sim._step()
+    weak = sim.channels()
+    assert weak["pw_ms"] > strong, (
+        f"pulse width {weak['pw_ms']:.2f} did not rise as the rail fell to "
+        f"{weak['rail_kpa']:.0f}")
+
+
+def test_a_split_injection_is_commanded_at_high_load(sim):
+    sim.pedal = 1.0
+    for _ in range(900):
+        sim._step()
+    ch = sim.channels()
+    assert ch["inj_pulses"] == 2, "no pilot pulse at full load"
+    assert 0.0 < ch["inj_split"] <= 0.6
+
+
+def test_a_single_pulse_at_light_load(sim):
+    sim.pedal = 0.12
+    for _ in range(600):
+        sim._step()
+    assert sim.channels()["inj_pulses"] == 1
+
+
+def test_injector_duty_is_measured_against_the_usable_window(sim):
+    """Against the whole cycle a direct injector looks about three times
+    larger than it is, and the first sign of that error on a real engine
+    is a lean misfire at full load."""
+    sim.pedal = 1.0
+    for _ in range(900):
+        sim._step()
+    ch = sim.channels()
+    window_ms = (sim.tune.engine["inj_window_deg"] / 360.0
+                 * 60000.0 / max(ch["rpm"], 100.0))
+    assert ch["inj_duty"] == pytest.approx(ch["pw_ms"] / window_ms * 100.0, rel=0.02)
+    assert ch["inj_duty"] > 15.0, "duty is implausibly low for full load"

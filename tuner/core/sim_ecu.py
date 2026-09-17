@@ -102,6 +102,9 @@ class SimulatedECU(ECUConnection):
         self._last_targets = (35.0, 0.0)
         self._spark, self._mbt = 20.0, 20.0
         self.tc_lock = 0
+        self.rail = 5000.0
+        self._rail_i = 0.0
+        self.hpfp_duty = 0.0
         self.knock_retard = 0.0
         self.knock_count = 0
         self._knock_hold = 0.0
@@ -253,20 +256,77 @@ class SimulatedECU(ECUConnection):
         return (26.0 - 0.26 * max(map_kpa - 90.0, 0.0)
                 + 0.0016 * rpm + 2.0 * math.sin(rpm / 1900.0))
 
-    def _fuel(self, air_g: float, lam_target: float, rpm: float):
-        """Injected fuel and the pulse width that delivers it. Returns
-        (fuel_mg, pw_ms, duty_pct)."""
+    def _fuel(self, air_g: float, lam_target: float, rpm: float,
+              rail_kpa: float, cylinder_kpa: float):
+        """Injected fuel and the pulse width that delivers it.
+
+        Direct injection sprays into a cylinder that is itself under
+        pressure, so what drives the nozzle is the DIFFERENCE between
+        rail and cylinder, not the rail alone. At high load that
+        difference is meaningfully smaller than the gauge reading, and an
+        ECU that ignores it runs lean exactly when leanness hurts.
+
+        Returns (fuel_mg, pw_ms, duty_pct).
+        """
         e = self.tune.engine
         afr = float(e.get("afr_stoich", 14.7))
         fuel_g = air_g / max(afr * max(lam_target, 0.3), 1e-6)
         flow_cc_min = float(e.get("injector_flow_cc_min", 1050.0))
-        rail = float(e.get("fuel_pressure_kpa", 350.0))
-        # flow scales with the square root of the pressure drop across the
-        # nozzle; the rating is at the tune's own rail pressure
-        flow_g_s = flow_cc_min / 60.0 * 0.745 * math.sqrt(max(rail, 1.0) / 350.0)
+        rated = float(e.get("fuel_pressure_kpa", 350.0))
+        dp = max(rail_kpa - cylinder_kpa, 50.0)
+        flow_g_s = flow_cc_min / 60.0 * 0.745 * math.sqrt(dp / max(rated, 1.0))
         pw = fuel_g / max(flow_g_s, 1e-6) * 1000.0 + float(e.get("injector_deadtime_ms", 0.9))
-        period_ms = 120000.0 / max(rpm, 100.0)      # one injection per two revs
-        return fuel_g * 1000.0, pw, min(pw / period_ms * 100.0, 100.0)
+        # Duty against the window injection can actually USE, not against
+        # the whole cycle. A direct injector may only spray while the
+        # intake valve is open and the cylinder is still low enough to
+        # spray into; measuring it against 720 degrees makes the
+        # injectors look about three times larger than they are, and the
+        # first sign of that error on a real engine is a lean misfire at
+        # full load.
+        window_deg = float(e.get("inj_window_deg", 240.0))
+        window_ms = window_deg / 360.0 * 60000.0 / max(rpm, 100.0)
+        return fuel_g * 1000.0, pw, min(pw / max(window_ms, 1e-6) * 100.0, 100.0)
+
+    def _rail_step(self, dt: float, target_kpa: float, demand_g_s: float,
+                   rpm: float):
+        """Rail pressure: on target while the pump can keep up, drooping
+        when it cannot.
+
+        Fuel is stiff. A gram of imbalance in a twenty cc rail moves the
+        pressure by tens of thousands of kPa, which is why real pump
+        control is fast, angle-scheduled and closed loop. Simulating that
+        loop tick by tick at a hundred hertz would model its numerical
+        problems rather than the engine's, and the loop is the ECU's job
+        and it works. What the tuner needs to see is the part that does
+        not work: when the injectors draw more than the pump can deliver,
+        the rail falls, every pulse delivers less than planned, and the
+        engine goes lean at exactly the worst moment.
+
+        So the loop is modelled by its outcome. Within capacity the rail
+        tracks its target with the lag a real system has. Beyond it, the
+        rail settles where the pump's delivery balances the draw.
+        """
+        e = self.tune.engine
+        cap = float(e.get("hpfp_capacity_g_s", 22.0))
+        # the pump is driven off the camshaft, so it delivers nothing
+        # until the engine turns and reaches full stroke rate with speed
+        cap *= min(max(rpm / 1200.0, 0.0), 1.0)
+
+        if demand_g_s <= cap and cap > 0.0:
+            self.hpfp_duty = demand_g_s / cap
+            reachable = target_kpa
+        else:
+            # Out of capacity. Flow through the nozzle goes as the square
+            # root of the pressure drop, so the rail falls to where the
+            # injectors can only pass what the pump supplies.
+            self.hpfp_duty = 1.0
+            shortfall = cap / max(demand_g_s, 1e-6)
+            reachable = max(target_kpa * shortfall * shortfall, 300.0)
+
+        tau = 0.08
+        self.rail += (reachable - self.rail) * min(dt / tau, 1.0)
+        self.rail = min(max(self.rail, 300.0), 25000.0)
+        return self.hpfp_duty
 
     # ---- engine constants from the tune --------------------------------------
     def _engine(self) -> Engine:
@@ -368,8 +428,17 @@ class SimulatedECU(ECUConnection):
         ve_cmd = T["ve"].lookup(self.rpm, map_kpa)
         air_cmd = float(air_mass(ve_cmd, map_kpa, t_charge, eng))
         lam_target = T["lambda"].lookup(self.rpm, map_kpa)
-        fuel_mg, pw_ms, duty = self._fuel(air_cmd, lam_target, self.rpm)
-        rail_kpa = float(e.get("fuel_pressure_kpa", 350.0))
+        rail_target = T["rail_target"].lookup(self.rpm, map_kpa)
+        fuel_mg, pw_ms, duty = self._fuel(air_cmd, lam_target, self.rpm,
+                                          self.rail, map_kpa)
+        # what the injectors are about to draw, in grams per second
+        demand_g_s = (fuel_mg * 1e-3 * float(e.get("n_cyl", 4))
+                      * self.rpm / 120.0)
+        self._rail_step(dt, rail_target, demand_g_s, self.rpm)
+        rail_kpa = self.rail
+        soi = T["soi"].lookup(self.rpm, map_kpa)
+        split = T["inj_split"].lookup(self.rpm, map_kpa)
+        n_pulses = 2 if split > 0.01 else 1
 
         # What the ENGINE actually does: the plant's own VE. The difference
         # between the two is exactly what shows up in measured lambda, which
@@ -570,6 +639,9 @@ class SimulatedECU(ECUConnection):
                   shift_from=float(self.shift["old"]) if self.shift else 0.0,
                   shift_to=float(self.shift["new"]) if self.shift else 0.0,
                   pw_ms=pw_ms, inj_duty=duty, fuel_mass=fuel_mg, rail_kpa=rail_kpa,
+                  rail_target=rail_target, rail_error=rail_kpa - rail_target,
+                  hpfp_duty=self.hpfp_duty * 100.0, soi=soi,
+                  inj_split=split, inj_pulses=float(n_pulses),
                   knock_retard=self.knock_retard, knock_count=float(self.knock_count),
                   pedal_a=pedal_a, pedal_b=pedal_b, tps_a=tps_a, tps_b=tps_b,
                   torque_permissible=self.monitor.permissible,

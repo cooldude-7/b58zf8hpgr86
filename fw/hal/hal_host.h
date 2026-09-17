@@ -24,5 +24,7 @@ f32 hal_host_throttle(void);
 bool hal_host_throttle_enabled(void);
 u32 hal_host_watchdog_kicks(void);
 bool hal_host_watchdog_tripped(void);
+void hal_host_set_boost_voltage(u16 v);
+const hal_inj_drive_t *hal_host_inj_drive(hal_out_t ch);
 
 #endif

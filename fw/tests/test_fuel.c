@@ -68,9 +68,14 @@ int main(void)
 
     TQ_CASE("duty cycle is bounded");
     {
-        TQ_NEAR(tq_injector_duty(8000, 7500.0f), 50.0f, 0.5f, "8 ms at 7500 rpm");
-        TQ_CHECK(tq_injector_duty(100000, 7500.0f) <= 100.0f, "duty over 100%%");
-        TQ_CHECK(tq_injector_duty(5000, 0.0f) == 0.0f, "duty at zero rpm");
+        /* 240 crank degrees at 7500 rpm is 5.33 ms of usable window */
+        TQ_NEAR(tq_injector_duty(2667, 7500.0f, 240.0f), 50.0f, 1.0f,
+                "2.67 ms into a 5.33 ms window");
+        TQ_CHECK(tq_injector_duty(100000, 7500.0f, 240.0f) <= 100.0f, "duty over 100%%");
+        TQ_CHECK(tq_injector_duty(5000, 0.0f, 240.0f) == 0.0f, "duty at zero rpm");
+        TQ_CHECK(tq_injector_duty(2667, 7500.0f, 240.0f)
+                 > tq_injector_duty(2667, 7500.0f, 720.0f),
+                 "a narrower window must show a higher duty");
         TQ_PASS("duty");
     }
 
