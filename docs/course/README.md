@@ -18,6 +18,18 @@ engine does not consult them to decide how to behave. Every correction
 you make is therefore a real correction, found the way you would find
 it on a dyno. That is the difference between this and a demonstration.
 
+## The four surfaces, and which to open when
+
+This course is delivered four ways. They are one thing; use them in
+this order and they behave like one.
+
+| | What it is | When |
+|---|---|---|
+| [**Calibration Bench**](https://claude.ai/artifact/LnNL2zyGuDTLqQrn2sx3Vr) | The front door. Tells you which sitting you are on and the one thing to do next, and holds the interactive instruments. | Open this first, every time. |
+| These lectures | The reading. One or two per sitting, named on the bench. | Before the lab. |
+| The app's **Course** page | The marker. Grades your tune against the engine. | After the lab. |
+| [The slide deck](https://claude.ai/artifact/WnugAPv7dAtp4rK2GLWa1w) | The lecture, for presenting. | Only if you are explaining this to somebody. |
+
 ## Before you start
 
 ```
@@ -28,6 +40,25 @@ Open **TQ-101 Course** in the navigator and press **Load the course
 tune**. That replaces the shipped base map with one that is wrong in
 the specific ways the labs ask you to fix. Then press **Mark
 everything** to see where you stand. All six should fail.
+
+Then open the bench and let it tell you where to begin. Six sittings,
+one lab each, and the sittings map to the lectures like this:
+
+| Sitting | Read | Lab |
+|---|---|---|
+| 1 | L05, L08 | Lab 1, volumetric efficiency |
+| 2 | L02, L09 | Lab 2, peak torque timing |
+| 3 | L03, L10 | Lab 3, the knock limit |
+| 4 | L04, L11 | Lab 4, mixture strategy |
+| 5 | L12, L13 | Lab 5, the shift coordinator |
+| 6 | L14 | Lab 6, direct injection |
+
+L01, L06, L07 and L15 are the conceptual sessions. Read them whenever;
+they land better once you have a couple of labs behind you.
+
+**One lab per sitting, and stop when it passes.** Finishing one thing
+beats half-finishing three, and a session with a small defined end is
+much easier to start.
 
 ## Syllabus
 

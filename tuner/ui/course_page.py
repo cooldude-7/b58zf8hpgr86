@@ -33,7 +33,13 @@ class CoursePage(QWidget):
             "<b>TQ-101 &mdash; Engine Calibration</b><br>"
             "Six graded labs. Each one is marked against the engine the "
             "simulator is actually running, which is not the engine your "
-            "tables describe. The lectures are in <tt>docs/course/</tt>.")
+            "tables describe.<br>"
+            "Lectures: <tt>docs/course/</tt> &nbsp;·&nbsp; "
+            "Start each session at the "
+            "<a href=\"https://claude.ai/artifact/LnNL2zyGuDTLqQrn2sx3Vr\">Calibration Bench</a>, "
+            "which tells you which sitting you are on.")
+        head.setOpenExternalLinks(True)
+        head.setTextFormat(Qt.RichText)
         head.setWordWrap(True)
         root.addWidget(head)
 
