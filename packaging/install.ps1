@@ -13,13 +13,24 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Source = (Join-Path (Split-Path -Parent $PSScriptRoot) "dist\TorqueTune"),
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\TorqueTune"),
+    [string]$Source,
+    [string]$InstallDir,
     [switch]$NoDesktop
 )
 
 $ErrorActionPreference = "Stop"
 $AppName = "TorqueTune"
+
+# Work out where this script is without trusting $PSScriptRoot: in Windows
+# PowerShell it comes back empty when read from a param() default, which
+# fails with a Split-Path error before anything useful has happened.
+$here = $PSScriptRoot
+if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Definition }
+if (-not $here) { $here = (Get-Location).Path }
+$repo = Split-Path -Parent $here
+
+if (-not $Source)     { $Source = Join-Path $repo "dist\TorqueTune" }
+if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\TorqueTune" }
 
 if (-not (Test-Path (Join-Path $Source "$AppName.exe"))) {
     throw "No build found at $Source. Run packaging\build.bat first."
@@ -42,7 +53,7 @@ $global:LASTEXITCODE = 0
 
 $exe = Join-Path $InstallDir "$AppName.exe"
 $uninstall = Join-Path $InstallDir "uninstall.ps1"
-Copy-Item (Join-Path $PSScriptRoot "uninstall.ps1") $uninstall -Force
+Copy-Item (Join-Path $here "uninstall.ps1") $uninstall -Force
 
 # Shortcuts. The icon comes from the exe itself -- the .ico is embedded at
 # build time, so there is no second file to keep in step.
@@ -73,8 +84,17 @@ Set-ItemProperty -Path "HKCU:\Software\Classes\$progId\shell\open\command" -Name
                  -Value "`"$exe`" `"%1`""
 
 # Apps & features
-$version = (Select-String -Path (Join-Path (Split-Path -Parent $PSScriptRoot) "tuner\__init__.py") `
-            -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+# Read the version from the source tree when it is there. An install run
+# from an unpacked build has no source, and a missing version is not worth
+# failing over.
+$version = "0.0.0"
+try {
+    $init = Join-Path $repo "tuner\__init__.py"
+    if (Test-Path $init) {
+        $m = (Select-String -Path $init -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches
+        if ($m.Count) { $version = $m[0].Groups[1].Value }
+    }
+} catch { }
 $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
 New-Item -Path $key -Force | Out-Null
 Set-ItemProperty -Path $key -Name DisplayName     -Value $AppName

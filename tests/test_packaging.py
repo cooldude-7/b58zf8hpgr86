@@ -118,3 +118,18 @@ def test_build_avoids_multiline_blocks():
     survive either line ending."""
     for line in BUILD.splitlines():
         assert not line.rstrip().endswith("("), line
+
+
+def test_install_does_not_lean_on_psscriptroot_in_param_defaults():
+    """Windows PowerShell hands back an empty $PSScriptRoot when it is read
+    from a param() default, and the script dies on Split-Path before doing
+    anything. Resolve the directory in the body, with fallbacks."""
+    param_block = INSTALL[INSTALL.index("param("):INSTALL.index(")", INSTALL.index("param("))]
+    assert "PSScriptRoot" not in param_block
+    assert "$MyInvocation.MyCommand.Definition" in INSTALL, "no fallback for the script path"
+
+
+def test_install_finds_the_build_relative_to_itself():
+    """Double-clicked from Explorer the working directory is anyone's guess,
+    so the default source must be derived from the script's own location."""
+    assert '$Source = Join-Path $repo "dist\\TorqueTune"' in INSTALL
