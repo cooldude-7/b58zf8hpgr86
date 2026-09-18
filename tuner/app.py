@@ -25,14 +25,17 @@ def main(argv=None):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
     from PySide6.QtCore import QTimer
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
     from . import APP_NAME, ORG_NAME
     from .core.tune import Tune
+    from .ui.assets import asset
     from .ui.main_window import MainWindow
     from .ui.theme import apply_classic
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME); app.setOrganizationName(ORG_NAME)
+    app.setWindowIcon(QIcon(str(asset("icon.png"))))
     apply_classic(app)
 
     tune = Tune.load(args.tune) if args.tune else None

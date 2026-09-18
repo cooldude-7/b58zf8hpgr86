@@ -52,6 +52,8 @@ has. See
 
 ## Running the tuner application
 
+![TorqueTune — the VE surface as the tuner draws it](docs/assets/cover.png)
+
 ```bash
 pip install -e .            # once; installs PySide6, pyqtgraph, numpy, matplotlib
 python -m tuner --demo      # start connected to the demo ECU
@@ -100,6 +102,14 @@ labs marked inside the app against the simulator's hidden plant.
 
 Open **TQ-101 Course** in the navigator, press **Load the course
 tune**, and press **Mark everything** to see where you stand.
+
+## Cover art and icon
+
+The header image, the About-box splash and the Windows icon are rendered by
+[tools/make_cover.py](tools/make_cover.py) from the same projection the 3D
+view uses and the same VE truth surface the simulator calibrates against, so
+the picture cannot drift away from the model behind it. Regenerate with
+`python tools/make_cover.py` rather than editing the PNGs.
 
 ## Firmware
 

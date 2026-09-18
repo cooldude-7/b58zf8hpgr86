@@ -4,9 +4,10 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QFontMetrics, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QHBoxLayout, QMessageBox, QSizePolicy, QStyle,
-                               QTabWidget, QToolBar, QWidget)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDockWidget, QFileDialog,
+                               QLabel, QMainWindow, QHBoxLayout, QMessageBox,
+                               QSizePolicy, QStyle, QTabWidget, QToolBar,
+                               QVBoxLayout, QWidget)
 
 from tqmodel.synth import generate
 from tqmodel.units import kpa_abs_to_boost_psi
@@ -20,6 +21,7 @@ from ..core.tune import Tune, default_tune
 from .datalog_view import DatalogView
 from .gauges import GaugePanel
 from .mimic import MimicPage
+from .assets import asset
 from .nav_tree import TREE, NavTree
 from .sim_dock import SimulatorDock
 from .settings_page import PlaceholderPage, SettingsPage
@@ -649,10 +651,34 @@ class MainWindow(QMainWindow):
             "lambda": log["lam"], "torque": log["torque_ref"]})
 
     def about(self):
-        QMessageBox.about(self, f"About {APP_NAME}",
-                          f"<b>{APP_NAME}</b> {APP_VERSION}<br>Tuner application for a "
-                          f"torque-structured engine controller.<br><br>Build: Phase 3 — "
-                          f"simulated engine and 8HP, live powertrain view.")
+        """Banner over text. QMessageBox puts its pixmap beside the text and
+        squeezes the words into a ribbon, so the box is built by hand."""
+        text = (f"<b>{APP_NAME}</b> {APP_VERSION}<br>Tuner application for a "
+                f"torque-structured engine controller.<br><br>Build: Phase 3 — "
+                f"simulated engine and 8HP, live powertrain view.")
+        splash = QPixmap(str(asset("splash.png")))
+        if splash.isNull():
+            QMessageBox.about(self, f"About {APP_NAME}", text)
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"About {APP_NAME}")
+        banner = QLabel()
+        banner.setPixmap(splash.scaledToWidth(520, Qt.SmoothTransformation))
+        body = QLabel(text)
+        body.setTextFormat(Qt.RichText)
+        body.setWordWrap(True)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok)
+        buttons.accepted.connect(dlg.accept)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(banner)
+        inner = QVBoxLayout()
+        inner.setContentsMargins(14, 12, 14, 12)
+        inner.addWidget(body)
+        inner.addWidget(buttons)
+        lay.addLayout(inner)
+        dlg.exec()
 
     def _default_dock_sizes(self):
         self.resizeDocks([self.dock_log], [min(330, int(self.height() * 0.30))], Qt.Vertical)
