@@ -43,17 +43,22 @@ def open_tune(path):
         return None
 
 
+SPLASH_MIN_MS = 1400          # long enough to read; short enough not to annoy
+SPLASH_SCREEN_FRACTION = 0.42  # of the screen's width
+
+
 def make_splash(app, enabled=True):
     """The startup banner, or None.
 
-    A frozen build spends a few seconds unpacking before the first window
-    appears, and Windows shows nothing at all in that gap -- which reads as
-    a launch that did not work. Running from a checkout it is over almost
-    at once, which is fine: the point is to cover a slow start, not to
-    impose a delay on a fast one.
+    Sized against the screen rather than fixed, so it is a presence on a
+    1080p laptop and does not become a stamp on a 4K monitor. It is
+    deliberately not window-sized: a splash is a card in the middle of the
+    screen, shown before there is a window to cover.
     """
     if not enabled:
         return None
+    import time
+
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QPixmap
     from PySide6.QtWidgets import QSplashScreen
@@ -66,13 +71,44 @@ def make_splash(app, enabled=True):
     pm = QPixmap(str(path))
     if pm.isNull():
         return None
-    ratio = app.devicePixelRatio() if hasattr(app, "devicePixelRatio") else 1.0
-    pm = pm.scaledToWidth(int(560 * max(ratio, 1.0)), Qt.SmoothTransformation)
-    pm.setDevicePixelRatio(max(ratio, 1.0))
+
+    ratio = max(app.devicePixelRatio() if hasattr(app, "devicePixelRatio") else 1.0, 1.0)
+    screen = app.primaryScreen()
+    avail = screen.availableGeometry().width() if screen else 1280
+    width = int(min(max(avail * SPLASH_SCREEN_FRACTION, 560), 1100))
+    pm = pm.scaledToWidth(int(width * ratio), Qt.SmoothTransformation)
+    pm.setDevicePixelRatio(ratio)
+
     splash = QSplashScreen(pm)
+    splash.shown_at = time.monotonic()
     splash.show()
+    splash.raise_()
     app.processEvents()          # paint it before the slow part starts
     return splash
+
+
+def hold_splash(app, splash, min_ms=SPLASH_MIN_MS):
+    """Keep the splash up until it has been readable for min_ms.
+
+    Startup from a checkout takes a couple of hundred milliseconds, so
+    without this the banner appears and vanishes in the same blink -- which
+    looks like a glitch rather than a start-up screen. Events keep being
+    processed while waiting, so the splash paints and the app stays
+    responsive.
+    """
+    import time
+
+    if splash is None:
+        return 0.0
+    start = getattr(splash, "shown_at", None) or time.monotonic()
+    waited = 0.0
+    while True:
+        elapsed = (time.monotonic() - start) * 1000.0
+        if elapsed >= min_ms:
+            return waited
+        app.processEvents()
+        time.sleep(0.02)
+        waited += 0.02
 
 
 def main(argv=None):
@@ -149,6 +185,9 @@ def main(argv=None):
             win.set_mimic_maximized(True)
     if args.three_d and "ve" in win.editors:
         win.editors["ve"].show_3d()
+    # Hold the banner before the window appears, not after: a splash that
+    # is dismissed by the thing it was covering looks like a flicker.
+    hold_splash(app, splash)
     win.show()
     if splash is not None:
         splash.finish(win)

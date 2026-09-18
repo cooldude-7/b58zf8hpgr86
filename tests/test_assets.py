@@ -128,3 +128,46 @@ def test_screenshot_runs_carry_no_splash(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
     app_mod.main(["--screenshot", str(tmp_path / "s.png")])
     assert seen == [False]
+
+
+def test_splash_is_sized_to_the_screen(qapp):
+    from tuner.app import make_splash
+
+    sp = make_splash(qapp)
+    w = sp.pixmap().width() / max(sp.pixmap().devicePixelRatio(), 1.0)
+    assert 560 <= w <= 1100, w
+    sp.close()
+
+
+def test_splash_is_held_long_enough_to_read(qapp):
+    """Startup from a checkout is a few hundred milliseconds; without a
+    floor the banner appears and vanishes in the same blink."""
+    import time
+
+    from tuner.app import hold_splash, make_splash
+
+    sp = make_splash(qapp)
+    sp.shown_at = time.monotonic()      # loading the image is itself slow here
+    t0 = time.monotonic()
+    hold_splash(qapp, sp, min_ms=300)
+    assert (time.monotonic() - t0) * 1000 >= 250
+    sp.close()
+
+
+def test_holding_an_already_old_splash_returns_at_once(qapp):
+    import time
+
+    from tuner.app import hold_splash, make_splash
+
+    sp = make_splash(qapp)
+    sp.shown_at = time.monotonic() - 10.0      # as if startup had been slow
+    t0 = time.monotonic()
+    hold_splash(qapp, sp, min_ms=1400)
+    assert (time.monotonic() - t0) < 0.1, "a slow start must not be padded"
+    sp.close()
+
+
+def test_hold_tolerates_no_splash(qapp):
+    from tuner.app import hold_splash
+
+    assert hold_splash(qapp, None) == 0.0
