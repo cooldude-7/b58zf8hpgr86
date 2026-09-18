@@ -36,6 +36,19 @@ if (-not (Test-Path (Join-Path $Source "$AppName.exe"))) {
     throw "No build found at $Source. Run packaging\build.bat first."
 }
 
+# Installing a build older than the source it came from is the quiet
+# failure: switch branch, install, and wonder why nothing changed.
+$newest = Get-ChildItem -Path (Join-Path $repo "tuner"), (Join-Path $repo "tqmodel") `
+                        -Recurse -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Extension -in ".py", ".png", ".ico" } |
+          Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($newest -and (Get-Item (Join-Path $Source "$AppName.exe")).LastWriteTime -lt $newest.LastWriteTime) {
+    Write-Warning "The build is older than the source ($($newest.Name) changed after it)."
+    Write-Warning "Run packaging\build.bat to rebuild first, or this installs the old one."
+    $answer = Read-Host "Install the old build anyway? [y/N]"
+    if ($answer -notmatch '^(y|yes)$') { throw "Stopped. Run packaging\build.bat." }
+}
+
 # A running copy locks its own files, so stop it before overwriting.
 Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "Closing the running $AppName..."

@@ -141,12 +141,27 @@ def test_doctor_reports_every_stage():
     association, icon. A gap in the report is another round trip."""
     doc = (PKG / "doctor.ps1").read_text()
     for stage in ("Checkout", "Build", "Install", "Shortcuts", "Registry",
-                  "Icon embedded"):
+                  "Icon in the exe"):
         assert stage in doc, stage
-    assert "ExtractAssociatedIcon" in doc, "must prove the exe carries an icon"
+    assert "Is the build current?" in doc, "staleness is the failure that hides"
+
+
+def test_doctor_does_not_trust_extractassociatedicon_alone():
+    """It returns the Windows default for an exe with no icon, so on its own
+    it reports success on exactly the build that is missing ours."""
+    doc = (PKG / "doctor.ps1").read_text()
+    assert "ExtractAssociatedIcon" in doc
+    assert "GetPixel" in doc, "must compare against the icon we embed"
 
 
 def test_doctor_changes_nothing():
     doc = (PKG / "doctor.ps1").read_text()
     for verb in ("Set-ItemProperty", "New-Item", "Remove-Item", "Copy-Item", "robocopy"):
         assert verb not in doc, f"doctor must be read-only, found {verb}"
+
+
+def test_install_refuses_a_stale_build_by_default():
+    """Installing an exe older than the source silently ships the wrong
+    build -- the failure that cost the most round trips here."""
+    assert "older than the source" in INSTALL
+    assert "Read-Host" in INSTALL, "must ask rather than install it quietly"

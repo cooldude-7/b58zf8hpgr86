@@ -91,15 +91,49 @@ $unin = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninst
 Say "Apps & features entry" ([bool]$unin) $(if ($unin) { "$($unin.DisplayName) $($unin.DisplayVersion)" })
 
 Write-Host ""
-Write-Host "Icon embedded in the exe"
-foreach ($cand in @($exe, $built)) {
-    if (Test-Path $cand) {
-        try {
-            Add-Type -AssemblyName System.Drawing
-            $ic = [System.Drawing.Icon]::ExtractAssociatedIcon($cand)
-            Say (Split-Path -Leaf $cand) ($null -ne $ic) "$($ic.Width)x$($ic.Height) from $cand"
-        } catch { Say (Split-Path -Leaf $cand) $false $_.Exception.Message }
+Write-Host "Is the build current?"
+# The trap this catches: build on one branch, switch, install. The exe is
+# then older than the source it supposedly came from, and nothing else in
+# this report looks wrong.
+$newest = Get-ChildItem -Path (Join-Path $repo "tuner"), (Join-Path $repo "tqmodel"),
+                              (Join-Path $repo "packaging") -Recurse -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Extension -in ".py", ".png", ".ico", ".spec" } |
+          Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ((Test-Path $built) -and $newest) {
+    $exeTime = (Get-Item $built).LastWriteTime
+    $fresh = $exeTime -ge $newest.LastWriteTime
+    Say "exe newer than the source" $fresh ""
+    Write-Host ("       exe built                          {0}" -f $exeTime)
+    Write-Host ("       newest source                      {0}  {1}" -f $newest.LastWriteTime, $newest.Name)
+    if (-not $fresh) {
+        Write-Host "       -> stale. Run packaging\build.bat to rebuild and reinstall."
     }
+}
+
+Write-Host ""
+Write-Host "Icon in the exe"
+# Windows hands back its own generic application icon for an exe that
+# carries none, so presence proves nothing. Compare against the icon the
+# build is supposed to have embedded.
+$ours = Join-Path $repo "tuner\ui\assets\torquetune.ico"
+foreach ($cand in @($exe, $built)) {
+    if (-not (Test-Path $cand)) { continue }
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $ic = [System.Drawing.Icon]::ExtractAssociatedIcon($cand)
+        $same = $false
+        if (Test-Path $ours) {
+            $mine = New-Object System.Drawing.Icon($ours, $ic.Width, $ic.Height)
+            $a = $ic.ToBitmap(); $b = $mine.ToBitmap()
+            $same = $true
+            for ($x = 0; $x -lt $a.Width -and $same; $x += 2) {
+                for ($y = 0; $y -lt $a.Height -and $same; $y += 2) {
+                    if ($a.GetPixel($x, $y).ToArgb() -ne $b.GetPixel($x, $y).ToArgb()) { $same = $false }
+                }
+            }
+        }
+        Say "ours, not the Windows default" $same "$cand"
+    } catch { Say "icon check" $false $_.Exception.Message }
 }
 
 Write-Host ""
