@@ -48,3 +48,83 @@ def test_ico_carries_small_sizes(qapp):
     frame gets downscaled badly by the shell."""
     sizes = {s.width() for s in QIcon(str(asset("torquetune.ico"))).availableSizes()}
     assert {16, 32, 256} <= sizes, sizes
+
+
+def test_icon_helper_returns_none_rather_than_a_null_icon(qapp, monkeypatch, tmp_path):
+    """Setting a null QIcon as the window icon overrides the one Windows
+    takes from the exe, so a blank taskbar button is worse than not setting
+    one at all."""
+    from tuner.ui import assets as A
+
+    assert A.icon("torquetune.ico") is not None
+    monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
+    assert A.icon("torquetune.ico") is None
+    assert A.found("torquetune.ico") is False
+
+
+def test_asset_search_covers_the_frozen_layouts(monkeypatch, tmp_path):
+    """PyInstaller 6 unpacks data under _internal; older layouts put it
+    beside the exe. Look in both rather than assume one."""
+    from tuner.ui import assets as A
+
+    exe = tmp_path / "app" / "TorqueTune.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    target = tmp_path / "app" / "_internal" / "tuner" / "ui" / "assets"
+    target.mkdir(parents=True)
+    (target / "splash.png").write_bytes(b"x")
+
+    monkeypatch.setattr(A.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(A.sys, "executable", str(exe))
+    monkeypatch.setattr(A, "_HERE", tmp_path / "nowhere")
+    assert A.asset("splash.png") == target / "splash.png"
+
+
+def test_report_names_every_image(qapp):
+    from tuner.ui import assets as A
+
+    text = A.report()
+    for name in ("torquetune.ico", "icon.png", "splash.png"):
+        assert name in text
+    assert "MISSING" not in text, text
+
+
+def test_splash_appears_and_is_the_right_shape(qapp):
+    from tuner.app import make_splash
+
+    sp = make_splash(qapp)
+    assert sp is not None
+    pm = sp.pixmap()
+    assert not pm.isNull()
+    assert pm.width() > pm.height(), "the splash is a banner, not a square"
+    sp.close()
+
+
+def test_splash_is_skipped_when_asked(qapp):
+    from tuner.app import make_splash
+
+    assert make_splash(qapp, enabled=False) is None
+
+
+def test_splash_missing_file_is_not_fatal(qapp, monkeypatch, tmp_path):
+    """A build without the art must still start, just without a banner."""
+    from tuner.ui import assets as A
+    from tuner.app import make_splash
+
+    monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
+    assert make_splash(qapp) is None
+
+
+def test_screenshot_runs_carry_no_splash(qapp, tmp_path, monkeypatch):
+    """It would sit on top of the window and land in the picture."""
+    import tuner.app as app_mod
+
+    seen = []
+    monkeypatch.setattr(app_mod, "make_splash",
+                        lambda app, enabled=True: seen.append(enabled) or None)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.exec", lambda self: 0)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__new__",
+                        lambda cls, *a, **k: qapp)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
+    app_mod.main(["--screenshot", str(tmp_path / "s.png")])
+    assert seen == [False]
