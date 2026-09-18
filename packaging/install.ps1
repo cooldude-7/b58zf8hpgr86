@@ -69,7 +69,11 @@ function New-Shortcut([string]$Path) {
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 New-Shortcut (Join-Path $startMenu "$AppName.lnk")
 if (-not $NoDesktop) {
-    New-Shortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "$AppName.lnk")
+    # GetFolderPath comes back empty on some redirected profiles
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    if (-not $desktop) { $desktop = Join-Path $env:USERPROFILE "Desktop" }
+    if (Test-Path $desktop) { New-Shortcut (Join-Path $desktop "$AppName.lnk") }
+    else { Write-Host "No Desktop folder found; Start menu shortcut only." }
 }
 
 # .tune files open in the tuner. Per-user classes, so no elevation.

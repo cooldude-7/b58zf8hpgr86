@@ -28,6 +28,19 @@ git log --oneline -1
 
 ## When it does not appear
 
+Run the doctor first. It reads only, and reports every stage at once:
+
+```bat
+packaging\doctor.bat
+```
+
+It prints whether you are on the right branch, whether the exe was built,
+whether the install copied it, whether the shortcuts and the .tune
+association exist, and whether the exe really carries an icon. Paste the
+whole thing rather than working through the steps below by hand.
+
+## Checking by hand
+
 Work down the list; each step tells you which part failed.
 
 1. **Does the exe exist?** `dir dist\TorqueTune\TorqueTune.exe`

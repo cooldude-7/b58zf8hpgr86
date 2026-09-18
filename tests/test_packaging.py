@@ -97,7 +97,8 @@ def test_a_good_file_still_opens(qapp, tmp_path):
     assert open_tune(str(path)) is not None
 
 
-@pytest.mark.parametrize("name", ["build.bat", "install.bat", "install.ps1", "uninstall.ps1"])
+@pytest.mark.parametrize("name", ["build.bat", "install.bat", "doctor.bat",
+                                  "install.ps1", "uninstall.ps1", "doctor.ps1"])
 def test_windows_scripts_are_crlf(name):
     """An LF-only .bat makes cmd mis-parse a block and skip the rest of the
     file without a word of complaint -- the build looks fine and nothing is
@@ -133,3 +134,19 @@ def test_install_finds_the_build_relative_to_itself():
     """Double-clicked from Explorer the working directory is anyone's guess,
     so the default source must be derived from the script's own location."""
     assert '$Source = Join-Path $repo "dist\\TorqueTune"' in INSTALL
+
+
+def test_doctor_reports_every_stage():
+    """One paste has to answer: right branch, built, installed, shortcuts,
+    association, icon. A gap in the report is another round trip."""
+    doc = (PKG / "doctor.ps1").read_text()
+    for stage in ("Checkout", "Build", "Install", "Shortcuts", "Registry",
+                  "Icon embedded"):
+        assert stage in doc, stage
+    assert "ExtractAssociatedIcon" in doc, "must prove the exe carries an icon"
+
+
+def test_doctor_changes_nothing():
+    doc = (PKG / "doctor.ps1").read_text()
+    for verb in ("Set-ItemProperty", "New-Item", "Remove-Item", "Copy-Item", "robocopy"):
+        assert verb not in doc, f"doctor must be read-only, found {verb}"
