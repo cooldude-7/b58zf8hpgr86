@@ -138,8 +138,10 @@ def test_intro_goes_away_on_its_own(qapp):
     win.close()
 
 
-def test_intro_can_be_clicked_away(qapp):
-    """Waiting two seconds every launch is a cost; a click skips it."""
+def test_intro_ignores_input_until_it_has_been_seen(qapp):
+    """A double-click on the desktop icon lands its second click on the new
+    window, and Start-menu launches end with Enter. Either one used to skip
+    the screen before it had drawn a frame."""
     from PySide6.QtCore import QEvent, QPoint, Qt
     from PySide6.QtGui import QMouseEvent
 
@@ -149,9 +151,18 @@ def test_intro_can_be_clicked_away(qapp):
     win = MainWindow(None, persist_layout=False)
     win.show()
     intro = show_intro(win, hold_ms=10_000)
-    ev = QMouseEvent(QEvent.MouseButtonPress, QPoint(10, 10), Qt.LeftButton,
-                     Qt.LeftButton, Qt.NoModifier)
-    intro.mousePressEvent(ev)
+    qapp.processEvents()                      # first paint starts the clock
+    click = QMouseEvent(QEvent.MouseButtonPress, QPoint(10, 10), Qt.LeftButton,
+                        Qt.LeftButton, Qt.NoModifier)
+    intro.mousePressEvent(click)
+    assert intro.isVisible(), "a click in the first moment must not dismiss it"
+
+    intro.clock.restart()
+    intro._painted = True
+    import time
+    time.sleep(0.05)
+    intro._skippable = lambda: True           # as if the grace had passed
+    intro.mousePressEvent(click)
     assert not intro.isVisible()
     win.close()
 
@@ -355,3 +366,37 @@ def test_intro_can_be_turned_off_for_good(qapp, monkeypatch):
     assert intro_enabled() is False
     set_intro_enabled(True)
     assert intro_enabled() is True
+
+
+def test_hold_is_measured_from_the_first_visible_frame(qapp):
+    """Unpacking, window mapping and the maximise all happen before the
+    first paint. Time eaten there is animation nobody watched."""
+    from tuner.ui.intro import IntroOverlay
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    intro = IntroOverlay(win, hold_ms=5000)
+    assert intro._painted is False
+    win.show()
+    qapp.processEvents()
+    assert intro._painted is True
+    assert intro.clock.elapsed() < 500, "the clock should restart at that frame"
+    intro.dismiss(0)
+    win.close()
+
+
+def test_window_is_sized_before_it_is_shown(qapp, tmp_path, monkeypatch):
+    """Show first and maximise after and you get a frame at 1400x860 then a
+    jump -- which looks like a small splash that grows."""
+    import tuner.app as app_mod
+    from tuner.ui.main_window import MainWindow
+
+    order = []
+    monkeypatch.setattr(MainWindow, "setGeometry", lambda self, g: order.append("geometry"))
+    monkeypatch.setattr(MainWindow, "showMaximized", lambda self: order.append("show"))
+    monkeypatch.setattr(MainWindow, "show", lambda self: order.append("show-normal"))
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.exec", lambda self: 0)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__new__", lambda cls, *a, **k: qapp)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
+    app_mod.main(["--no-splash", "--screenshot", str(tmp_path / "s.png")])
+    assert order == ["geometry", "show"], order

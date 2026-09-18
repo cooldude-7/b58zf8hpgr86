@@ -34,6 +34,7 @@ FADE_MS = 280
 BUILD_MS = 1200          # the surface rising out of the plane
 SETTLE_MS = 700          # motion easing to rest at the end
 FRAME_MS = 33            # ~30 fps
+INPUT_GRACE_MS = 1200    # see mousePressEvent
 NX, NY = 20, 14          # 247 quads a frame; the 3D view does ~400 interactively
 ZS = 0.62
 
@@ -85,11 +86,14 @@ class IntroOverlay(QWidget):
 
         self.clock = QElapsedTimer()
         self.clock.start()
+        self._painted = False
         if self.base is not None:
             self._timer = QTimer(self)
             self._timer.timeout.connect(self._tick)
             self._timer.start(FRAME_MS)
-        QTimer.singleShot(self.hold_ms, self.dismiss)
+        # Backstop: if the window never paints -- offscreen, minimised at
+        # launch -- the screen must still go away.
+        QTimer.singleShot(self.hold_ms + 3000, self.dismiss)
 
     # ---- state --------------------------------------------------------
     def set_status(self, text):
@@ -143,6 +147,14 @@ class IntroOverlay(QWidget):
         return False
 
     def paintEvent(self, _ev):
+        if not self._painted:
+            # The clock starts at the first frame the user could actually
+            # see, not at construction: unpacking, window mapping and the
+            # maximise all happen before this, and any of it eaten from
+            # the hold is animation nobody watched.
+            self._painted = True
+            self.clock.restart()
+            QTimer.singleShot(self.hold_ms, self.dismiss)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), BG)
@@ -208,11 +220,20 @@ class IntroOverlay(QWidget):
                    Qt.AlignRight | Qt.AlignVCenter, f"version {APP_VERSION}")
 
     # ---- dismissal ----------------------------------------------------
+    # A double-click on the desktop icon arrives as a click on the new
+    # window, and launching from the Start menu ends with Enter. Both used
+    # to dismiss the screen before anyone saw it, so input is ignored
+    # until it has been up long enough to be deliberate.
+    def _skippable(self):
+        return self._painted and self.clock.elapsed() >= INPUT_GRACE_MS
+
     def mousePressEvent(self, _ev):
-        self.dismiss(0)
+        if self._skippable():
+            self.dismiss(0)
 
     def keyPressEvent(self, _ev):
-        self.dismiss(0)
+        if self._skippable():
+            self.dismiss(0)
 
     def dismiss(self, fade_ms=FADE_MS):
         # Not isVisible(): an overlay on a window that has not been shown

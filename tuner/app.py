@@ -110,12 +110,15 @@ def main(argv=None):
     # carries it rather than flashing the application underneath.
     intro = show_intro(win, hold_ms=args.splash_ms, animate=not args.no_anim) if wants_intro else None
 
-    # First run has no saved geometry. Open filled rather than at an
-    # arbitrary 1400x860 that the user then has to maximise -- and the
-    # start-up screen is the window, so a small window is a small one.
+    # Show once, at the size it will stay. Showing first and maximising
+    # after gives a frame at 1400x860 and then a jump, which reads as a
+    # small splash that grows.
     if getattr(win, "restored_layout", False):
         win.show()
     else:
+        screen = app.primaryScreen()
+        if screen is not None:
+            win.setGeometry(screen.availableGeometry())
         win.showMaximized()
 
     # The work the screen is covering. Each step names itself on the way
