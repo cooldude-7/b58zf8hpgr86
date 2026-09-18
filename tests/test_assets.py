@@ -156,7 +156,9 @@ def test_intro_can_be_clicked_away(qapp):
     win.close()
 
 
-def test_intro_without_art_is_not_fatal(qapp, monkeypatch, tmp_path):
+def test_intro_needs_no_image_files(qapp, monkeypatch, tmp_path):
+    """The animation draws the surface itself, so a build with no PNGs
+    still gets a start-up screen."""
     from tuner.ui import assets as A
     from tuner.ui.intro import show_intro
     from tuner.ui.main_window import MainWindow
@@ -164,7 +166,10 @@ def test_intro_without_art_is_not_fatal(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
     win = MainWindow(None, persist_layout=False)
     win.show()
-    assert show_intro(win) is None
+    intro = show_intro(win, hold_ms=5000)
+    assert intro is not None and intro.base is not None
+    intro.dismiss(0)
+    assert show_intro(win, animate=False) is None      # nothing left to draw
     win.close()
 
 
@@ -198,7 +203,7 @@ def test_intro_uses_the_window_shaped_art(qapp):
 
 
 def test_intro_falls_back_to_the_banner(qapp, monkeypatch, tmp_path):
-    """A build made before intro.png existed still gets a start-up screen."""
+    """With the animation off, the painted art is used instead."""
     import shutil
 
     from tuner.ui import assets as A
@@ -209,8 +214,8 @@ def test_intro_falls_back_to_the_banner(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
     win = MainWindow(None, persist_layout=False)
     win.show()
-    intro = show_intro(win, hold_ms=10_000)
-    assert intro is not None
+    intro = show_intro(win, hold_ms=10_000, animate=False)
+    assert intro is not None and intro.base is None
     intro.dismiss(0)
     win.close()
 
@@ -247,3 +252,106 @@ def test_first_run_opens_filled(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
     app_mod.main(["--no-splash", "--screenshot", str(tmp_path / "s.png")])
     assert shown == ["max"], shown
+
+
+def test_intro_animates(qapp):
+    """The whole point: the surface at the start is not the surface a
+    second later."""
+    import numpy as np
+
+    from tuner.ui.intro import IntroOverlay
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.resize(900, 600)
+    intro = IntroOverlay(win, hold_ms=5000)
+    early, _ = intro.frame(150)
+    mid, _ = intro.frame(1500)
+    late, _ = intro.frame(3000)
+    assert np.ptp(early) < np.ptp(mid) * 0.5, "it should start near flat and rise"
+    assert not np.allclose(mid, late), "the values should keep moving"
+    assert intro.camera(0.0) < intro.camera(4.0), "the camera should drift"
+    intro.dismiss(0)
+    win.close()
+
+
+def test_intro_settles_before_it_goes(qapp):
+    """Motion eases out, so the app is not revealed mid-wobble."""
+    import numpy as np
+
+    from tuner.ui.intro import IntroOverlay
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    intro = IntroOverlay(win, hold_ms=5000)
+    settled, _ = intro.frame(4990)
+    assert np.allclose(settled, intro.base, atol=1e-6)
+    intro.dismiss(0)
+    win.close()
+
+
+def test_intro_frame_is_cheap_enough_for_30fps(qapp):
+    """A stuttering loading screen is worse than a still one."""
+    import time
+
+    from tuner.ui.intro import IntroOverlay
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.resize(1280, 800)
+    intro = IntroOverlay(win, hold_ms=5000)
+    win.show()
+    qapp.processEvents()
+    t0 = time.perf_counter()
+    for _ in range(20):
+        intro.grab()
+    mean_ms = (time.perf_counter() - t0) / 20 * 1000
+    assert mean_ms < 30, f"{mean_ms:.1f} ms a frame"
+    intro.dismiss(0)
+    win.close()
+
+
+def test_intro_timer_dies_with_the_overlay(qapp):
+    """A repaint timer left running after dismissal burns CPU for the life
+    of the session."""
+    from tuner.ui.intro import IntroOverlay
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    intro = IntroOverlay(win, hold_ms=5000)
+    assert intro._timer is not None and intro._timer.isActive()
+    intro.dismiss(0)
+    assert intro._timer is None
+    win.close()
+
+
+def test_startup_work_runs_behind_the_screen(qapp):
+    """Deferred so the screen covers real work instead of padding time."""
+    from tuner.ui.main_window import MainWindow
+
+    plain = MainWindow(None, persist_layout=False)
+    assert plain.startup_steps == []          # the log was loaded inline
+    plain.close()
+
+    deferred = MainWindow(None, persist_layout=False, defer_startup=True)
+    assert [label for label, _ in deferred.startup_steps]
+    for _, step in deferred.startup_steps:
+        step()
+    deferred.close()
+
+
+def test_intro_can_be_turned_off_for_good(qapp, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from tuner.ui.intro import intro_enabled, set_intro_enabled
+
+    store = {}
+    monkeypatch.setattr(QSettings, "value",
+                        lambda self, k, d=None: store.get(k, d))
+    monkeypatch.setattr(QSettings, "setValue",
+                        lambda self, k, v: store.__setitem__(k, v))
+    assert intro_enabled() is True
+    set_intro_enabled(False)
+    assert intro_enabled() is False
+    set_intro_enabled(True)
+    assert intro_enabled() is True

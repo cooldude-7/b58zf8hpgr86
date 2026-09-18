@@ -22,6 +22,7 @@ from .datalog_view import DatalogView
 from .gauges import GaugePanel
 from .mimic import MimicPage
 from .assets import asset
+from .intro import intro_enabled, set_intro_enabled
 from .nav_tree import TREE, NavTree
 from .sim_dock import SimulatorDock
 from .settings_page import PlaceholderPage, SettingsPage
@@ -81,7 +82,8 @@ class _ElidedLabel(QLabel):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, tune: Tune | None = None, persist_layout: bool = True):
+    def __init__(self, tune: Tune | None = None, persist_layout: bool = True,
+                 defer_startup: bool = False):
         super().__init__()
         self.persist_layout = persist_layout
         self.tune = tune or default_tune()
@@ -115,7 +117,13 @@ class MainWindow(QMainWindow):
         self._refresh_title()
 
         self.open_item("table", "ve", "VE Table")
-        self._load_demo_log()
+        # With a start-up screen up, the slow work runs behind it and
+        # reports itself, rather than delaying the first frame.
+        self.startup_steps = []
+        if defer_startup:
+            self.startup_steps.append(("generating the demo log", self._load_demo_log))
+        else:
+            self._load_demo_log()
         self.restored_layout = self._restore_layout()
         if not self.restored_layout:
             # first run: dock sizes only stick once the window has laid out
@@ -180,6 +188,10 @@ class MainWindow(QMainWindow):
         self.a_theme_classic = A("&Classic", self, checkable=True, checked=True)
         self.a_theme_dark = A("&Dark", self, checkable=True, enabled=False)
         self.a_about = A("&About…", self, triggered=self.about)
+        self.a_intro = A("Start-up &screen", self, checkable=True,
+                         checked=intro_enabled())
+        self.a_intro.setToolTip("Show the animated VE surface while the application loads")
+        self.a_intro.triggered.connect(set_intro_enabled)
 
     def _build_menus(self):
         mb = self.menuBar()
@@ -250,6 +262,8 @@ class MainWindow(QMainWindow):
         self.m_view.addAction(self.a_units_psi); self.m_view.addAction(self.a_units_kpa)
         self.m_view.addSeparator()
         self.m_view.addAction(self.a_theme_classic); self.m_view.addAction(self.a_theme_dark)
+        self.m_view.addSeparator()
+        self.m_view.addAction(self.a_intro)
 
     def _build_central(self):
         self.tabs = QTabWidget()

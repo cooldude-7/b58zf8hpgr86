@@ -1,30 +1,80 @@
-"""The start-up screen the application shows in its own window.
+"""The start-up screen: the VE surface, drawn live while the app loads.
 
-Not a QSplashScreen: that is a small card floating on the desktop before
-the window exists. This is an overlay filling the whole window -- docks,
-toolbar and all -- which holds for a couple of seconds and then reveals
-the application underneath it.
+Not a QSplashScreen -- that is a card floating on the desktop in front of
+nothing. This is an overlay filling the whole window, painting the same
+surface the 3D table view paints, with the values moving as though a sweep
+were being logged. It holds for a few seconds and fades into the
+application underneath.
+
+The motion is in three parts: the surface rises out of a flat plane column
+by column across the rpm axis, then a slow wave travels over it while the
+camera drifts round, then everything eases to rest at the angle the cover
+art uses.
 """
-from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+import math
+
+import numpy as np
+from PySide6.QtCore import (QEasingCurve, QElapsedTimer, QEvent, QPropertyAnimation,
+                            QRect, Qt, QTimer)
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 
 from .. import APP_VERSION
 from .assets import asset
+from .surface_paint import project, quad_polys
 
 BG = QColor("#202020")
+EDGE = QColor("#3A3A3A")
+INK = QColor("#F0F0F0")
+SUB = QColor("#9A9A9A")
 DIM = QColor("#6A6A6A")
-HOLD_MS = 2000
+
+HOLD_MS = 5000
 FADE_MS = 280
+BUILD_MS = 1200          # the surface rising out of the plane
+SETTLE_MS = 700          # motion easing to rest at the end
+FRAME_MS = 33            # ~30 fps
+NX, NY = 20, 14          # 247 quads a frame; the 3D view does ~400 interactively
+ZS = 0.62
+
+
+def _ease(x):
+    x = min(max(x, 0.0), 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def ve_surface(nx=NX, ny=NY):
+    """The truth surface the simulator calibrates against, with the local
+    structure a real head has. Imported lazily so a missing tqmodel cannot
+    stop the application starting."""
+    from tqmodel.synth import truth_ve
+
+    gx, gy = np.meshgrid(np.linspace(800.0, 7200.0, nx), np.linspace(30.0, 240.0, ny))
+    return (np.asarray(truth_ve(gx, gy), dtype=float)
+            + 0.045 * np.sin(gx / 900.0) * np.cos(gy / 95.0)
+            + 0.030 * np.exp(-((gx - 3100.0) / 900.0) ** 2) * np.sin(gy / 60.0)
+            - 0.035 * np.exp(-((gx - 6200.0) / 700.0) ** 2))
 
 
 class IntroOverlay(QWidget):
-    """Covers its parent and paints the start-up art, centred."""
+    """Covers its parent and animates the surface until dismissed."""
 
-    def __init__(self, parent, pixmap):
+    def __init__(self, parent, hold_ms=HOLD_MS, animate=True):
         super().__init__(parent)
-        self._pm = pixmap
+        self.hold_ms = max(int(hold_ms), 0)
+        self.status = ""
+        self._fallback = None
         self._scaled = None
+        self._timer = None
+        self._done = False
+
+        self.base = ve_surface() if animate else None
+        if self.base is not None:
+            self.flat = np.full_like(self.base, float(self.base.mean()))
+            span = float(self.base.max() - self.base.min())
+            self.vmin = float(self.base.min()) - 0.10 * span
+            self.vmax = float(self.base.max()) + 0.10 * span
+
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setFocusPolicy(Qt.StrongFocus)
         parent.installEventFilter(self)
@@ -33,32 +83,131 @@ class IntroOverlay(QWidget):
         self.raise_()
         self.setFocus()
 
-    # keep covering the window however it is resized
+        self.clock = QElapsedTimer()
+        self.clock.start()
+        if self.base is not None:
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._tick)
+            self._timer.start(FRAME_MS)
+        QTimer.singleShot(self.hold_ms, self.dismiss)
+
+    # ---- state --------------------------------------------------------
+    def set_status(self, text):
+        """What the application is doing behind the screen."""
+        self.status = str(text)
+        self.update()
+
+    def _tick(self):
+        if self.clock.elapsed() > self.hold_ms + FADE_MS:
+            self._stop_timer()
+        self.update()
+
+    def _stop_timer(self):
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer = None
+
+    def frame(self, t_ms=None):
+        """The surface at t milliseconds: built, waving, settling."""
+        t = (self.clock.elapsed() if t_ms is None else t_ms) / 1000.0
+        ny, nx = self.base.shape
+        I, J = np.meshgrid(np.arange(nx), np.arange(ny))
+
+        # rise out of the plane, column by column along rpm
+        lead = (I / max(nx - 1, 1)) * (BUILD_MS * 0.55) / 1000.0
+        a = np.clip((t - lead) / (BUILD_MS * 0.45 / 1000.0), 0.0, 1.0)
+        a = a * a * (3.0 - 2.0 * a)
+        v = self.flat + (self.base - self.flat) * a
+
+        # a wave travelling over it, faded in after the build and out at the end
+        rise = _ease((t - BUILD_MS / 1000.0) / 0.6)
+        end = (self.hold_ms - SETTLE_MS) / 1000.0
+        calm = 1.0 - _ease((t - end) / (SETTLE_MS / 1000.0))
+        amp = 0.035 * (self.base.max() - self.base.min()) * rise * calm
+        if amp > 0.0:
+            phase = 2.0 * math.pi * (0.9 * I / nx + 0.6 * J / ny - 0.33 * t)
+            v = v + amp * np.sin(phase)
+        return v, t
+
+    def camera(self, t):
+        """Azimuth drifts while the surface moves, then stops where the
+        cover art sits."""
+        return -50.0 + 16.0 * _ease(t / max(self.hold_ms / 1000.0, 1e-3))
+
+    # ---- painting -----------------------------------------------------
     def eventFilter(self, obj, ev):
         if obj is self.parent() and ev.type() in (QEvent.Resize, QEvent.Show):
             self.setGeometry(self.parent().rect())
+            self._scaled = None
             self.raise_()
         return False
 
     def paintEvent(self, _ev):
         p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), BG)
-        if not self._pm.isNull():
-            box = self.size() * 0.92
-            if self._scaled is None or self._scaled.size() != box:
-                self._scaled = self._pm.scaled(box, Qt.KeepAspectRatio,
-                                               Qt.SmoothTransformation)
-            s = self._scaled
-            p.drawPixmap((self.width() - s.width()) // 2,
-                         (self.height() - s.height()) // 2, s)
-        f = QFont("Segoe UI")
-        f.setPixelSize(13)
-        p.setFont(f)
+        w, h = self.width(), self.height()
+
+        if self.base is not None:
+            self._paint_surface(p, w, h)
+        else:
+            self._paint_still(p, w, h)
+        self._paint_text(p, w, h)
+
+    def _paint_surface(self, p, w, h):
+        v, t = self.frame()
+        zn = np.clip((v - self.vmin) / max(self.vmax - self.vmin, 1e-9), 0.0, 1.0)
+        ny, nx = zn.shape
+        I, J = np.meshgrid(np.arange(nx), np.arange(ny))
+        X = I / max(nx - 1, 1) - 0.5
+        Y = J / max(ny - 1, 1) - 0.5
+        Z = zn * ZS - ZS / 2
+        zoom = min(max(0.46 * w / max(0.66 * min(w, h), 1.0), 0.80), 1.7)
+        px, py, pd = project(X, Y, Z, w, h, self.camera(t), 29.0, zoom, y_bias=0.02)
+        p.setPen(QPen(EDGE, 1))
+        for poly, colour in quad_polys(px, py, pd, zn):
+            p.setBrush(colour)
+            p.drawPolygon(poly)
+
+    def _paint_still(self, p, w, h):
+        """No numpy, no tqmodel, or animation switched off: the painted art."""
+        if self._fallback is None:
+            path = asset("intro.png")
+            if not path.exists():
+                path = asset("splash.png")
+            self._fallback = QPixmap(str(path)) if path.exists() else QPixmap()
+        if self._fallback.isNull():
+            return
+        if self._scaled is None or self._scaled.size() != self.size() * 0.92:
+            self._scaled = self._fallback.scaled(self.size() * 0.92, Qt.KeepAspectRatio,
+                                                 Qt.SmoothTransformation)
+        s = self._scaled
+        p.drawPixmap((w - s.width()) // 2, (h - s.height()) // 2, s)
+
+    def _paint_text(self, p, w, h):
+        title = QFont(self.font())
+        title.setPixelSize(max(int(h * 0.058), 30))
+        title.setBold(True)
+        p.setFont(title)
+        p.setPen(INK)
+        p.drawText(QRect(int(w * 0.07), int(h * 0.12), w, int(h * 0.09)),
+                   Qt.AlignLeft | Qt.AlignVCenter, "TorqueTune")
+
+        small = QFont("Consolas")
+        small.setPixelSize(max(int(h * 0.020), 12))
+        p.setFont(small)
+        p.setPen(SUB)
+        p.drawText(QRect(int(w * 0.072), int(h * 0.205), w, int(h * 0.04)),
+                   Qt.AlignLeft | Qt.AlignVCenter, "volumetric efficiency  ·  f(rpm, MAP)")
+
         p.setPen(DIM)
-        p.drawText(QRect(0, self.height() - 40, self.width() - 28, 20),
+        p.drawText(QRect(int(w * 0.072), h - int(h * 0.09), int(w * 0.8), int(h * 0.04)),
+                   Qt.AlignLeft | Qt.AlignVCenter,
+                   self.status or "torque-structure ECU  ·  B48 + ZF 8HP  ·  speed density")
+        p.drawText(QRect(0, h - int(h * 0.06), w - int(w * 0.02), int(h * 0.04)),
                    Qt.AlignRight | Qt.AlignVCenter, f"version {APP_VERSION}")
 
-    # a click or a key gets you past it -- nobody should have to wait
+    # ---- dismissal ----------------------------------------------------
     def mousePressEvent(self, _ev):
         self.dismiss(0)
 
@@ -66,9 +215,14 @@ class IntroOverlay(QWidget):
         self.dismiss(0)
 
     def dismiss(self, fade_ms=FADE_MS):
-        if not self.isVisible():
+        # Not isVisible(): an overlay on a window that has not been shown
+        # yet is invisible but very much alive, and skipping the teardown
+        # there leaves its repaint timer running for the session.
+        if self._done:
             return
+        self._done = True
         if fade_ms <= 0:
+            self._stop_timer()
             self.close()
             return
         effect = QGraphicsOpacityEffect(self)
@@ -78,21 +232,38 @@ class IntroOverlay(QWidget):
         self._fade.setStartValue(1.0)
         self._fade.setEndValue(0.0)
         self._fade.setEasingCurve(QEasingCurve.InQuad)
-        self._fade.finished.connect(self.close)
+        self._fade.finished.connect(self._finish)
         self._fade.start()
 
+    def _finish(self):
+        self._stop_timer()
+        self.close()
 
-def show_intro(window, hold_ms=HOLD_MS, name="intro.png"):
-    """Cover `window` with the start-up art for hold_ms. Returns the
-    overlay, or None when there is no art to show."""
-    path = asset(name)
-    if not path.exists():
-        path = asset("splash.png")        # older builds shipped only this
-    if not path.exists():
+
+def intro_enabled() -> bool:
+    """Remembered across runs, so it can be turned off for good."""
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME, ORG_NAME
+    v = QSettings(ORG_NAME, APP_NAME).value("show_intro", True)
+    return v not in (False, "false", "False", 0, "0")
+
+
+def set_intro_enabled(on: bool) -> None:
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME, ORG_NAME
+    QSettings(ORG_NAME, APP_NAME).setValue("show_intro", bool(on))
+
+
+def show_intro(window, hold_ms=HOLD_MS, animate=True):
+    """Cover `window` with the start-up screen. Returns the overlay, or
+    None if there is nothing to draw with."""
+    if animate:
+        try:
+            ve_surface(4, 4)
+        except Exception:
+            animate = False
+    if not animate and not (asset("intro.png").exists() or asset("splash.png").exists()):
         return None
-    pm = QPixmap(str(path))
-    if pm.isNull():
-        return None
-    overlay = IntroOverlay(window, pm)
-    QTimer.singleShot(max(hold_ms, 0), overlay.dismiss)
-    return overlay
+    return IntroOverlay(window, hold_ms=hold_ms, animate=animate)

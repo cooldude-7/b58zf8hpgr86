@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from .colors import heat
+from .surface_paint import project as _project
 
 BG = QColor("#202020")
 EDGE = QColor("#3A3A3A")
@@ -32,14 +33,7 @@ class Surface3D(QWidget):
 
     # ---- projection ---------------------------------------------------
     def _project(self, X, Y, Z, w, h):
-        az, el = math.radians(self.az), math.radians(self.el)
-        xr = X * math.cos(az) - Y * math.sin(az)
-        yr = X * math.sin(az) + Y * math.cos(az)
-        sx = xr
-        sy = Z * math.cos(el) + yr * math.sin(el)
-        depth = yr * math.cos(el) - Z * math.sin(el)
-        S = min(w, h) * 0.66 * self.zoom
-        return w / 2 + sx * S, h / 2 + h * 0.05 - sy * S, depth
+        return _project(X, Y, Z, w, h, self.az, self.el, self.zoom)
 
     # ---- painting -----------------------------------------------------
     def paintEvent(self, ev):

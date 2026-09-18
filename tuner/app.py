@@ -54,8 +54,10 @@ def main(argv=None):
     ap.add_argument("--max", action="store_true", help="with --open mimic: maximize the live view")
     ap.add_argument("--no-splash", action="store_true",
                     help="skip the start-up screen")
-    ap.add_argument("--splash-ms", type=int, default=2000, metavar="MS",
-                    help="how long the start-up screen holds (default 2000)")
+    ap.add_argument("--splash-ms", type=int, default=5000, metavar="MS",
+                    help="how long the start-up screen holds (default 5000)")
+    ap.add_argument("--no-anim", action="store_true",
+                    help="start-up screen without the animation")
     ap.add_argument("--check-assets", action="store_true",
                     help="report where the application found its images, and exit")
     ap.add_argument("tune", nargs="?", help="tune file to open")
@@ -95,10 +97,37 @@ def main(argv=None):
         app.setWindowIcon(app_icon)
     apply_classic(app)
 
+    from .ui.intro import intro_enabled, show_intro
+
+    wants_intro = not (args.no_splash or args.screenshot) and intro_enabled()
+
     tune = open_tune(args.tune) if args.tune else None
-    win = MainWindow(tune, persist_layout=not args.screenshot)
+    win = MainWindow(tune, persist_layout=not args.screenshot, defer_startup=wants_intro)
     if app_icon is not None:
         win.setWindowIcon(app_icon)      # some shells read the window, not the app
+
+    # Up before the window is shown, so its first painted frame already
+    # carries it rather than flashing the application underneath.
+    intro = show_intro(win, hold_ms=args.splash_ms, animate=not args.no_anim) if wants_intro else None
+
+    # First run has no saved geometry. Open filled rather than at an
+    # arbitrary 1400x860 that the user then has to maximise -- and the
+    # start-up screen is the window, so a small window is a small one.
+    if getattr(win, "restored_layout", False):
+        win.show()
+    else:
+        win.showMaximized()
+
+    # The work the screen is covering. Each step names itself on the way
+    # past, so the time it takes is visible rather than invented.
+    for label, step in getattr(win, "startup_steps", []):
+        if intro is not None:
+            intro.set_status(label)
+        app.processEvents()
+        step()
+    if intro is not None:
+        intro.set_status("ready")
+
     if args.sim is not None:
         win.use_simulator()
         win.sim.pedal = args.sim / 100.0
@@ -115,21 +144,6 @@ def main(argv=None):
             win.set_mimic_maximized(True)
     if args.three_d and "ve" in win.editors:
         win.editors["ve"].show_3d()
-    # Put the start-up screen up BEFORE the window is shown, so the window's
-    # first painted frame already carries it. Showing the window first meant
-    # a flash of the application, then the cover over the top.
-    if not (args.no_splash or args.screenshot):
-        from .ui.intro import show_intro
-        show_intro(win, hold_ms=args.splash_ms)
-
-    # First run has no saved geometry. Open filled rather than at an
-    # arbitrary 1400x860 that the user then has to maximise -- and the
-    # start-up screen is the window, so a small window is a small one.
-    if getattr(win, "restored_layout", False):
-        win.show()
-    else:
-        win.showMaximized()
-
     if args.screenshot:
         def snap():
             app.processEvents()
