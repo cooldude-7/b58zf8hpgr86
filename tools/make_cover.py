@@ -219,49 +219,48 @@ def shade(c, f):
     return QColor(int(c.red() * f), int(c.green() * f), int(c.blue() * f))
 
 
-def mark(size, rows, rib):
-    """The icon mark: the surface alone on transparency, with one ridgeline
-    per load row drawn over it. No tile, no text -- the silhouette is the
-    logo, so the picture has to carry it.
+def mark(size, cols, rows, stroke):
+    """The icon mark: the surface alone on transparency, drawn as the grid
+    the table actually is -- a cell edge in both directions, the way the 3D
+    view draws it. No tile, no text; the silhouette is the logo.
 
-    Rendered at 4x and reduced: at 16 px the ribs are thinner than a pixel
-    and Qt's own antialiasing drops them unevenly, which reads as a moire.
+    Rendered at 4x and reduced. Below about a pixel of stroke width Qt drops
+    edges unevenly and a regular grid turns into moire.
     """
     ss = 4
     img, p = canvas(size * ss, size * ss, bg=None)
-    v = surface(30, rows)
+    v = surface(cols, rows)
     X, Y, Z, zn, lo, hi = normalise(v, 1.0)
     cam = Cam(-42.0, 30.0, QRectF(-size * ss * 0.06, size * ss * 0.03,
                                   size * ss * 1.12, size * ss * 0.94))
     k = cam.add(X, Y, Z)
     cam.fit()
     px, py, pd = cam.get(k)
-    p.setPen(Qt.NoPen)
     for _, poly, c in quads(px, py, pd, zn):
+        p.setPen(QPen(shade(c, 0.45), stroke * ss))
         p.setBrush(c)
         p.drawPolygon(poly)
-    ny, nx = zn.shape
-    for j in range(ny):
-        p.setPen(QPen(shade(heat(float(zn[j].mean())), 0.55), rib * ss))
-        p.drawPolyline(QPolygonF([QPointF(px[j, i], py[j, i]) for i in range(nx)]))
     p.end()
     return img.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 
-# One frame per size the shell asks for, each with as many ribs as that many
-# pixels can actually resolve -- a 256 px frame reduced to 16 loses them all.
-ICON_FRAMES = {256: (14, 1.6), 128: (12, 1.6), 64: (10, 1.5),
-               48: (8, 1.5), 32: (7, 1.4), 24: (6, 1.3), 16: (5, 1.2)}
+# One frame per size the shell asks for, each with a grid coarse enough for
+# that many pixels to resolve: a 256 px frame reduced to 16 loses its lines
+# and goes muddy. The stroke thins with the frame so colour, not linework,
+# carries at the small end.
+ICON_FRAMES = {256: (26, 14, 1.0), 128: (22, 12, 1.0), 64: (18, 10, 0.9),
+               48: (15, 8, 0.85), 32: (12, 7, 0.75), 24: (10, 6, 0.7),
+               16: (8, 5, 0.6)}
 
 
 def icon(path_png, path_ico, size=512):
-    mark(size, 16, 1.6).save(str(path_png))
+    mark(size, 26, 14, 1.0).save(str(path_png))
     from PIL import Image
     frames = []
-    for n, (rows, rib) in sorted(ICON_FRAMES.items()):
+    for n, (cols, rows, stroke) in sorted(ICON_FRAMES.items()):
         f = ROOT / "build" / f"_icon{n}.png"
         f.parent.mkdir(parents=True, exist_ok=True)
-        mark(n, rows, rib).save(str(f))
+        mark(n, cols, rows, stroke).save(str(f))
         frames.append(Image.open(f).convert("RGBA"))
         f.unlink()
     frames[-1].save(path_ico, format="ICO", sizes=[(i.width, i.height) for i in frames],

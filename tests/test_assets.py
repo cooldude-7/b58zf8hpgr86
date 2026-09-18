@@ -27,15 +27,15 @@ def test_icon_has_no_tile(qapp):
 
 
 def test_ico_frames_are_drawn_not_downscaled(qapp):
-    """Each frame is rendered at its own size with as many ridgelines as it
-    can resolve, so the 16 px frame is not the 256 px one shrunk."""
+    """Each frame is rendered at its own size with a grid that size can
+    resolve, so the 16 px frame is not the 256 px one shrunk."""
     from PIL import IcoImagePlugin
     from tools.make_cover import ICON_FRAMES, mark
     fh = open(asset("torquetune.ico"), "rb")          # IcoFile reads lazily
     ico = IcoImagePlugin.IcoFile(fh)
     for n in (16, 64):
-        rows, rib = ICON_FRAMES[n]
-        want = mark(n, rows, rib)
+        cols, rows, stroke = ICON_FRAMES[n]
+        want = mark(n, cols, rows, stroke)
         got = ico.getimage((n, n)).convert("RGBA")
         diff = max(abs(want.pixelColor(x, y).alpha() - got.getpixel((x, y))[3])
                    for x in range(n) for y in range(n))
