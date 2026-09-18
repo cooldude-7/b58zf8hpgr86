@@ -10,6 +10,7 @@ stays honest about the model behind it.
 
 Outputs:
     docs/assets/cover.png            1600x900  README header
+    tuner/ui/assets/intro.png        1600x900  in-app start-up screen
     tuner/ui/assets/splash.png        880x420  About box
     tuner/ui/assets/icon.png          512x512  source for the icon
     tuner/ui/assets/torquetune.ico             16..256 px, for Windows
@@ -201,6 +202,24 @@ def cover(path, w=1600, h=900):
     img.save(str(path))
 
 
+def intro(path, w=1600, h=900):
+    """The in-app start-up screen. Same picture as the cover, sized for a
+    window rather than a card -- the banner shape floats badly when it is
+    scaled up to fill a 16:9 window."""
+    img, p = canvas(w, h)
+    lo, hi = draw_surface(p, QRectF(70, 190, w - 140, h - 290), 24, 18)
+    p.setPen(QColor("#F0F0F0")); p.setFont(font(56, bold=True))
+    p.drawText(QRectF(70, 74, 900, 66), Qt.AlignLeft | Qt.AlignVCenter, "TorqueTune")
+    p.setPen(QColor("#9A9A9A")); p.setFont(font(19, mono=True))
+    p.drawText(QRectF(72, 142, 900, 26), Qt.AlignLeft | Qt.AlignVCenter,
+               "volumetric efficiency  ·  f(rpm, MAP)")
+    p.setPen(QColor("#6A6A6A")); p.setFont(font(15, mono=True))
+    p.drawText(QRectF(72, h - 66, 1200, 20), Qt.AlignLeft,
+               "torque-structure ECU  ·  B48 + ZF 8HP  ·  speed density")
+    p.end()
+    img.save(str(path))
+
+
 def splash(path, w=880, h=420):
     """Same picture, tighter: it sits next to text in the About box."""
     img, p = canvas(w, h)
@@ -273,6 +292,7 @@ def main():
     assets = ROOT / "tuner" / "ui" / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     cover(ROOT / "docs" / "assets" / "cover.png")
+    intro(assets / "intro.png")
     splash(assets / "splash.png")
     icon(assets / "icon.png", assets / "torquetune.ico")
     print("wrote docs/assets/cover.png, tuner/ui/assets/{splash.png,icon.png,torquetune.ico}")

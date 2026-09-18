@@ -111,9 +111,10 @@ labs marked inside the app against the simulator's hidden plant.
 Open **TQ-101 Course** in the navigator, press **Load the course
 tune**, and press **Mark everything** to see where you stand.
 
-## Cover art and icon
+## Cover art, start-up screen and icon
 
-The header image, the About-box splash and the Windows icon are rendered by
+The header image, the in-app start-up screen, the About-box banner and the
+Windows icon are rendered by
 [tools/make_cover.py](tools/make_cover.py) from the same projection the 3D
 view uses and the same VE truth surface the simulator calibrates against, so
 the picture cannot drift away from the model behind it. Regenerate with

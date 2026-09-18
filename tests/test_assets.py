@@ -5,7 +5,7 @@ from tuner.ui.assets import asset
 
 
 def test_assets_exist():
-    for name in ("icon.png", "splash.png", "torquetune.ico"):
+    for name in ("icon.png", "splash.png", "intro.png", "torquetune.ico"):
         assert asset(name).exists(), name
 
 
@@ -89,85 +89,127 @@ def test_report_names_every_image(qapp):
     assert "MISSING" not in text, text
 
 
-def test_splash_appears_and_is_the_right_shape(qapp):
-    from tuner.app import make_splash
+def test_intro_covers_the_whole_window(qapp):
+    """The point of it: the window itself is the start-up screen, not a
+    card floating in front of one."""
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
 
-    sp = make_splash(qapp)
-    assert sp is not None
-    pm = sp.pixmap()
-    assert not pm.isNull()
-    assert pm.width() > pm.height(), "the splash is a banner, not a square"
-    sp.close()
+    win = MainWindow(None, persist_layout=False)
+    win.resize(900, 600)
+    win.show()
+    intro = show_intro(win, hold_ms=10_000)
+    assert intro is not None
+    assert intro.geometry() == win.rect()
+    assert intro.isVisible()
+    intro.dismiss(0)
+    win.close()
 
 
-def test_splash_is_skipped_when_asked(qapp):
-    from tuner.app import make_splash
+def test_intro_follows_a_resize(qapp):
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
 
-    assert make_splash(qapp, enabled=False) is None
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    intro = show_intro(win, hold_ms=10_000)
+    win.resize(1100, 700)
+    qapp.processEvents()
+    assert intro.geometry() == win.rect()
+    intro.dismiss(0)
+    win.close()
 
 
-def test_splash_missing_file_is_not_fatal(qapp, monkeypatch, tmp_path):
-    """A build without the art must still start, just without a banner."""
+def test_intro_goes_away_on_its_own(qapp):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    intro = show_intro(win, hold_ms=60)
+    gone = []
+    intro.destroyed.connect(lambda: gone.append(True))   # it deletes itself
+    loop = QEventLoop()
+    QTimer.singleShot(900, loop.quit)
+    loop.exec()
+    assert gone or not intro.isVisible()
+    win.close()
+
+
+def test_intro_can_be_clicked_away(qapp):
+    """Waiting two seconds every launch is a cost; a click skips it."""
+    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    intro = show_intro(win, hold_ms=10_000)
+    ev = QMouseEvent(QEvent.MouseButtonPress, QPoint(10, 10), Qt.LeftButton,
+                     Qt.LeftButton, Qt.NoModifier)
+    intro.mousePressEvent(ev)
+    assert not intro.isVisible()
+    win.close()
+
+
+def test_intro_without_art_is_not_fatal(qapp, monkeypatch, tmp_path):
     from tuner.ui import assets as A
-    from tuner.app import make_splash
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
 
     monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
-    assert make_splash(qapp) is None
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    assert show_intro(win) is None
+    win.close()
 
 
-def test_screenshot_runs_carry_no_splash(qapp, tmp_path, monkeypatch):
+def test_screenshot_runs_carry_no_intro(qapp, tmp_path, monkeypatch):
     """It would sit on top of the window and land in the picture."""
-    import tuner.app as app_mod
+    import tuner.ui.intro as intro_mod
 
     seen = []
-    monkeypatch.setattr(app_mod, "make_splash",
-                        lambda app, enabled=True: seen.append(enabled) or None)
+    monkeypatch.setattr(intro_mod, "show_intro", lambda *a, **k: seen.append(a) or None)
+    import tuner.app as app_mod
+
     monkeypatch.setattr("PySide6.QtWidgets.QApplication.exec", lambda self: 0)
-    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__new__",
-                        lambda cls, *a, **k: qapp)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__new__", lambda cls, *a, **k: qapp)
     monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
     app_mod.main(["--screenshot", str(tmp_path / "s.png")])
-    assert seen == [False]
+    assert seen == []
 
 
-def test_splash_is_sized_to_the_screen(qapp):
-    from tuner.app import make_splash
+def test_intro_uses_the_window_shaped_art(qapp):
+    """splash.png is a wide card for the About box; scaled up to fill a
+    window it floats in the middle with the wordmark adrift. intro.png is
+    drawn at window proportions."""
+    from tuner.ui.assets import asset
 
-    sp = make_splash(qapp)
-    w = sp.pixmap().width() / max(sp.pixmap().devicePixelRatio(), 1.0)
-    assert 560 <= w <= 1100, w
-    sp.close()
+    intro = asset("intro.png")
+    assert intro.exists()
+    from PySide6.QtGui import QPixmap
 
-
-def test_splash_is_held_long_enough_to_read(qapp):
-    """Startup from a checkout is a few hundred milliseconds; without a
-    floor the banner appears and vanishes in the same blink."""
-    import time
-
-    from tuner.app import hold_splash, make_splash
-
-    sp = make_splash(qapp)
-    sp.shown_at = time.monotonic()      # loading the image is itself slow here
-    t0 = time.monotonic()
-    hold_splash(qapp, sp, min_ms=300)
-    assert (time.monotonic() - t0) * 1000 >= 250
-    sp.close()
+    pm = QPixmap(str(intro))
+    assert abs(pm.width() / pm.height() - 16 / 9) < 0.02, (pm.width(), pm.height())
 
 
-def test_holding_an_already_old_splash_returns_at_once(qapp):
-    import time
+def test_intro_falls_back_to_the_banner(qapp, monkeypatch, tmp_path):
+    """A build made before intro.png existed still gets a start-up screen."""
+    import shutil
 
-    from tuner.app import hold_splash, make_splash
+    from tuner.ui import assets as A
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
 
-    sp = make_splash(qapp)
-    sp.shown_at = time.monotonic() - 10.0      # as if startup had been slow
-    t0 = time.monotonic()
-    hold_splash(qapp, sp, min_ms=1400)
-    assert (time.monotonic() - t0) < 0.1, "a slow start must not be padded"
-    sp.close()
-
-
-def test_hold_tolerates_no_splash(qapp):
-    from tuner.app import hold_splash
-
-    assert hold_splash(qapp, None) == 0.0
+    shutil.copy(A.asset("splash.png"), tmp_path / "splash.png")
+    monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    intro = show_intro(win, hold_ms=10_000)
+    assert intro is not None
+    intro.dismiss(0)
+    win.close()

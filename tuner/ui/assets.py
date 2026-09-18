@@ -65,7 +65,7 @@ def icon(name: str = "torquetune.ico"):
 def report() -> str:
     """Which images resolved and where -- for --check-assets."""
     lines = []
-    for name in ("torquetune.ico", "icon.png", "splash.png"):
+    for name in ("torquetune.ico", "icon.png", "splash.png", "intro.png"):
         p = asset(name)
         lines.append(f"{'found  ' if p.exists() else 'MISSING'}  {name}\n          {p}")
     lines.append("")
