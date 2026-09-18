@@ -9,6 +9,40 @@ import os
 import sys
 
 
+def _set_windows_app_id():
+    """Give Windows an explicit application identity.
+
+    Without one the shell attributes the window to whatever launched it --
+    python.exe when running from source -- so the taskbar shows the Python
+    icon, windows group under the wrong button, and a pinned shortcut opens
+    a second entry instead of lighting up the first one.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TorqueTune.Tuner")
+    except Exception:
+        pass            # cosmetic only; never worth failing a launch over
+
+
+def open_tune(path):
+    """Load a tune named on the command line, or report why not.
+
+    Double-clicking a .tune file lands here, and the frozen build has no
+    console, so an uncaught exception would be a silent death. Say what is
+    wrong and start empty instead.
+    """
+    from . import APP_NAME
+    from .core.tune import Tune
+    try:
+        return Tune.load(path)
+    except Exception as exc:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.critical(None, f"{APP_NAME} — cannot open", f"{path}\n\n{exc}")
+        return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="torquetune")
     ap.add_argument("--demo", action="store_true", help="connect to the demo ECU on start")
@@ -33,6 +67,7 @@ def main(argv=None):
     from .ui.main_window import MainWindow
     from .ui.theme import apply_classic
 
+    _set_windows_app_id()
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME); app.setOrganizationName(ORG_NAME)
     # the .ico carries a frame drawn for each size; a single large PNG would
@@ -40,7 +75,7 @@ def main(argv=None):
     app.setWindowIcon(QIcon(str(asset("torquetune.ico"))))
     apply_classic(app)
 
-    tune = Tune.load(args.tune) if args.tune else None
+    tune = open_tune(args.tune) if args.tune else None
     win = MainWindow(tune, persist_layout=not args.screenshot)
     if args.sim is not None:
         win.use_simulator()

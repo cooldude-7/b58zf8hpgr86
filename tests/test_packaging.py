@@ -1,0 +1,82 @@
+"""The Windows install path.
+
+These are static checks: nothing here can run a PowerShell script on a
+Linux CI box. What they do catch is the drift that silently breaks an
+install -- a renamed exe, a script that installs something the uninstaller
+never removes, a build that stops calling the installer at all.
+"""
+import re
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+PKG = ROOT / "packaging"
+INSTALL = (PKG / "install.ps1").read_text()
+UNINSTALL = (PKG / "uninstall.ps1").read_text()
+BUILD = (PKG / "build.bat").read_text()
+
+
+def test_build_installs():
+    assert "pyinstaller --noconfirm packaging\\tuner.spec" in BUILD
+    assert "install.ps1" in BUILD
+    assert "-NoDesktop" in BUILD, "the /nodesktop switch must reach the script"
+
+
+def test_spec_embeds_the_icon():
+    spec = (PKG / "tuner.spec").read_text()
+    assert "torquetune.ico" in spec
+    assert (ROOT / "tuner" / "ui" / "assets" / "torquetune.ico").exists()
+
+
+def test_shortcuts_take_their_icon_from_the_exe():
+    """Not from a loose .ico: the exe carries the icon already, and a second
+    copy is one more thing to get out of step."""
+    assert '$sc.IconLocation = "$exe,0"' in INSTALL
+
+
+@pytest.mark.parametrize("what", ["Start Menu\\Programs", "GetFolderPath(\"Desktop\")",
+                                  "HKCU:\\Software\\Classes\\.tune",
+                                  "CurrentVersion\\Uninstall"])
+def test_everything_installed_is_also_removed(what):
+    key = what.split("\\")[-1].split("(")[0]
+    assert key in INSTALL and key in UNINSTALL, key
+
+
+def test_association_passes_the_file_to_the_app():
+    m = re.search(r'shell\\open\\command.*?-Value "(.*?)"\s*$', INSTALL, re.S | re.M)
+    assert m and "%1" in m.group(1), "double-clicking a .tune must pass its path"
+
+
+def test_uninstall_leaves_a_stolen_association_alone():
+    """If another program has taken .tune since, removing the key would
+    break it rather than tidy up after us."""
+    assert "$cur -eq $progId" in UNINSTALL
+
+
+def test_app_survives_a_bad_file_on_the_command_line(qapp, tmp_path, monkeypatch):
+    """The association hands the app whatever the user double-clicked. A
+    windowed build has no console, so a raised exception is a silent death."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from tuner.app import open_tune
+
+    shown = []
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: shown.append(a[2])))
+    bad = tmp_path / "broken.tune"
+    bad.write_text("{ not json")
+    assert open_tune(str(bad)) is None
+    assert shown and "broken.tune" in shown[0]
+
+    missing = tmp_path / "gone.tune"
+    assert open_tune(str(missing)) is None
+    assert len(shown) == 2
+
+
+def test_a_good_file_still_opens(qapp, tmp_path):
+    from tuner.app import open_tune
+    from tuner.core.tune import default_tune
+
+    path = tmp_path / "ok.tune"
+    default_tune().save(path)
+    assert open_tune(str(path)) is not None

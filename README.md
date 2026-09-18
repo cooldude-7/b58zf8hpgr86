@@ -65,8 +65,14 @@ rpm/30 Hz, exhaust resonance, turbo whistle, a bang and drop-out on a shift
 cut), not a recording of any particular engine. A recorded sample bank can
 replace it behind `EngineSynth.render()`.
 
-Windows executable: run `packaging\build.bat` from the repo root, then
-`dist\TorqueTune\TorqueTune.exe`. The application is at Phase 3 of
+Windows: run `packaging\build.bat` from the repo root. It builds
+`dist\TorqueTune\TorqueTune.exe`, then installs it for the current user —
+a copy under `%LOCALAPPDATA%\Programs\TorqueTune`, a Start menu and desktop
+shortcut carrying the app icon, `.tune` files associated so they open on a
+double-click, and an entry in **Apps & features**. Pass `/nodesktop` to skip
+the desktop shortcut; remove it from Apps & features or run
+`packaging\uninstall.ps1`. No elevation is needed and nothing is written
+outside your user profile. The application is at Phase 3 of
 [docs/tuning-app-plan.md](docs/tuning-app-plan.md): heat-map table editor
 with live cursor and full keyboard editing, axis editing, software-rendered
 3D surface, gauges, live datalog with recording, tune load/save and burn,
