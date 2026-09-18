@@ -23,6 +23,21 @@ def test_build_installs():
     assert "-NoDesktop" in BUILD, "the /nodesktop switch must reach the script"
 
 
+def test_build_does_not_close_on_failure():
+    """Run by double-click, the window shuts the instant the script ends and
+    takes the error with it."""
+    assert BUILD.rstrip().endswith("pause")
+    assert "INSTALL FAILED" in BUILD
+
+
+def test_install_can_be_run_on_its_own():
+    """A build that already exists should not have to be built again just to
+    get a shortcut."""
+    bat = (PKG / "install.bat").read_text()
+    assert "install.ps1" in bat and "ExecutionPolicy Bypass" in bat
+    assert '%~dp0\\..' in bat, "must work when double-clicked from packaging\\"
+
+
 def test_spec_embeds_the_icon():
     spec = (PKG / "tuner.spec").read_text()
     assert "torquetune.ico" in spec

@@ -65,7 +65,9 @@ rpm/30 Hz, exhaust resonance, turbo whistle, a bang and drop-out on a shift
 cut), not a recording of any particular engine. A recorded sample bank can
 replace it behind `EngineSynth.render()`.
 
-Windows: run `packaging\build.bat` from the repo root. It builds
+Windows: run `packaging\build.bat` from the repo root (see
+[packaging/README.md](packaging/README.md), which also lists what to check
+if no shortcut appears). It builds
 `dist\TorqueTune\TorqueTune.exe`, then installs it for the current user —
 a copy under `%LOCALAPPDATA%\Programs\TorqueTune`, a Start menu and desktop
 shortcut carrying the app icon, `.tune` files associated so they open on a

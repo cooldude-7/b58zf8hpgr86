@@ -12,3 +12,11 @@ if /i "%~1"=="/nodesktop" (
 ) else (
     powershell -ExecutionPolicy Bypass -File packaging\install.ps1
 )
+if errorlevel 1 (
+    echo.
+    echo INSTALL FAILED -- the exe is built and runnable at
+    echo   dist\TorqueTune\TorqueTune.exe
+    echo but no shortcut was made. The error is above this line.
+)
+echo.
+pause
