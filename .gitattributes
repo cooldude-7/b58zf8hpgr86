@@ -1,0 +1,13 @@
+# Windows shells are strict about line endings in a way that fails quietly.
+# cmd.exe mis-parses a multi-line block in an LF-only .bat -- it runs the
+# lines before it and silently skips the rest -- so these must arrive as
+# CRLF whatever the checkout machine's core.autocrlf says.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Everything else: normalise in the repo, check out native.
+*      text=auto
+
+*.png  binary
+*.ico  binary

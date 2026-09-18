@@ -16,6 +16,16 @@ Already built, just want the shortcut? Double-click `packaging\install.bat`.
 
 `packaging\build.bat /nodesktop` skips the desktop shortcut.
 
+## Check you are on the right branch
+
+The installer lives on `claude/zen-goldberg-jdw51o`. On the default branch
+`build.bat` only builds, which looks like the install silently doing nothing.
+
+```bat
+git branch --show-current
+git log --oneline -1
+```
+
 ## When it does not appear
 
 Work down the list; each step tells you which part failed.

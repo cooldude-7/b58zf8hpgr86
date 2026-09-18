@@ -95,3 +95,26 @@ def test_a_good_file_still_opens(qapp, tmp_path):
     path = tmp_path / "ok.tune"
     default_tune().save(path)
     assert open_tune(str(path)) is not None
+
+
+@pytest.mark.parametrize("name", ["build.bat", "install.bat", "install.ps1", "uninstall.ps1"])
+def test_windows_scripts_are_crlf(name):
+    """An LF-only .bat makes cmd mis-parse a block and skip the rest of the
+    file without a word of complaint -- the build looks fine and nothing is
+    installed. .gitattributes pins the checkout; this pins what is committed."""
+    raw = (PKG / name).read_bytes()
+    assert raw.count(b"\r\n") > 0
+    assert raw.count(b"\n") == raw.count(b"\r\n"), "bare LF in a Windows script"
+
+
+def test_gitattributes_pins_the_line_endings():
+    attrs = (ROOT / ".gitattributes").read_text()
+    for pat in ("*.bat", "*.ps1"):
+        assert f"{pat}  text eol=crlf" in attrs.replace("\t", " "), pat
+
+
+def test_build_avoids_multiline_blocks():
+    """The construct that broke: a ( ) block spanning lines. Labels and goto
+    survive either line ending."""
+    for line in BUILD.splitlines():
+        assert not line.rstrip().endswith("("), line
