@@ -213,3 +213,37 @@ def test_intro_falls_back_to_the_banner(qapp, monkeypatch, tmp_path):
     assert intro is not None
     intro.dismiss(0)
     win.close()
+
+
+def test_intro_covers_a_window_shown_after_it(qapp):
+    """It is created before the window is shown, so the window's first
+    painted frame already carries it -- otherwise you see a flash of the
+    application and then the cover landing on top."""
+    from tuner.ui.intro import show_intro
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    intro = show_intro(win, hold_ms=10_000)      # before show, as main() does
+    win.showMaximized()
+    qapp.processEvents()
+    assert intro.geometry() == win.rect()
+    assert intro.isVisible()
+    intro.dismiss(0)
+    win.close()
+
+
+def test_first_run_opens_filled(qapp, tmp_path, monkeypatch):
+    """With no saved geometry the window opened at 1400x860 and the user
+    had to maximise it every time -- and a small window means a small
+    start-up screen."""
+    import tuner.app as app_mod
+    from tuner.ui.main_window import MainWindow
+
+    shown = []
+    monkeypatch.setattr(MainWindow, "showMaximized", lambda self: shown.append("max"))
+    monkeypatch.setattr(MainWindow, "show", lambda self: shown.append("normal"))
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.exec", lambda self: 0)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__new__", lambda cls, *a, **k: qapp)
+    monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
+    app_mod.main(["--no-splash", "--screenshot", str(tmp_path / "s.png")])
+    assert shown == ["max"], shown

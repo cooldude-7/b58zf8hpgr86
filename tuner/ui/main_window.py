@@ -116,7 +116,8 @@ class MainWindow(QMainWindow):
 
         self.open_item("table", "ve", "VE Table")
         self._load_demo_log()
-        if not self._restore_layout():
+        self.restored_layout = self._restore_layout()
+        if not self.restored_layout:
             # first run: dock sizes only stick once the window has laid out
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self._default_dock_sizes)

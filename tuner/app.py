@@ -115,12 +115,20 @@ def main(argv=None):
             win.set_mimic_maximized(True)
     if args.three_d and "ve" in win.editors:
         win.editors["ve"].show_3d()
-    win.show()
-    # The start-up screen covers the window itself, so it goes up after the
-    # window is shown. Offscreen runs skip it: it would land in the picture.
+    # Put the start-up screen up BEFORE the window is shown, so the window's
+    # first painted frame already carries it. Showing the window first meant
+    # a flash of the application, then the cover over the top.
     if not (args.no_splash or args.screenshot):
         from .ui.intro import show_intro
         show_intro(win, hold_ms=args.splash_ms)
+
+    # First run has no saved geometry. Open filled rather than at an
+    # arbitrary 1400x860 that the user then has to maximise -- and the
+    # start-up screen is the window, so a small window is a small one.
+    if getattr(win, "restored_layout", False):
+        win.show()
+    else:
+        win.showMaximized()
 
     if args.screenshot:
         def snap():
