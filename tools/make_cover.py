@@ -177,9 +177,9 @@ def colour_bar(p, bar, lo, hi):
     p.drawText(QRectF(bar.left() - 110, bar.bottom() + 14, 100, 18), Qt.AlignRight, "VE")
 
 
-def canvas(w, h):
+def canvas(w, h, bg=BG):
     img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(BG))
+    img.fill(QColor(bg) if bg else Qt.transparent)
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
     return img, p
@@ -215,16 +215,57 @@ def splash(path, w=880, h=420):
     img.save(str(path))
 
 
-def icon(path_png, path_ico, size=512):
-    """No text, a coarse mesh and no cell edges -- the shape has to survive
-    being drawn at 16 px."""
-    img, p = canvas(size, size)
-    draw_surface(p, QRectF(-size * 0.10, size * 0.02, size * 1.20, size * 0.96),
-                 12, 9, az=-46.0, el=38.0, zs=1.05, box=False, edges=False, labels=False)
+def shade(c, f):
+    return QColor(int(c.red() * f), int(c.green() * f), int(c.blue() * f))
+
+
+def mark(size, rows, rib):
+    """The icon mark: the surface alone on transparency, with one ridgeline
+    per load row drawn over it. No tile, no text -- the silhouette is the
+    logo, so the picture has to carry it.
+
+    Rendered at 4x and reduced: at 16 px the ribs are thinner than a pixel
+    and Qt's own antialiasing drops them unevenly, which reads as a moire.
+    """
+    ss = 4
+    img, p = canvas(size * ss, size * ss, bg=None)
+    v = surface(30, rows)
+    X, Y, Z, zn, lo, hi = normalise(v, 1.0)
+    cam = Cam(-42.0, 30.0, QRectF(-size * ss * 0.06, size * ss * 0.03,
+                                  size * ss * 1.12, size * ss * 0.94))
+    k = cam.add(X, Y, Z)
+    cam.fit()
+    px, py, pd = cam.get(k)
+    p.setPen(Qt.NoPen)
+    for _, poly, c in quads(px, py, pd, zn):
+        p.setBrush(c)
+        p.drawPolygon(poly)
+    ny, nx = zn.shape
+    for j in range(ny):
+        p.setPen(QPen(shade(heat(float(zn[j].mean())), 0.55), rib * ss))
+        p.drawPolyline(QPolygonF([QPointF(px[j, i], py[j, i]) for i in range(nx)]))
     p.end()
-    img.save(str(path_png))
+    return img.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+
+# One frame per size the shell asks for, each with as many ribs as that many
+# pixels can actually resolve -- a 256 px frame reduced to 16 loses them all.
+ICON_FRAMES = {256: (14, 1.6), 128: (12, 1.6), 64: (10, 1.5),
+               48: (8, 1.5), 32: (7, 1.4), 24: (6, 1.3), 16: (5, 1.2)}
+
+
+def icon(path_png, path_ico, size=512):
+    mark(size, 16, 1.6).save(str(path_png))
     from PIL import Image
-    Image.open(path_png).save(path_ico, sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
+    frames = []
+    for n, (rows, rib) in sorted(ICON_FRAMES.items()):
+        f = ROOT / "build" / f"_icon{n}.png"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        mark(n, rows, rib).save(str(f))
+        frames.append(Image.open(f).convert("RGBA"))
+        f.unlink()
+    frames[-1].save(path_ico, format="ICO", sizes=[(i.width, i.height) for i in frames],
+                    append_images=frames[:-1])
 
 
 def main():

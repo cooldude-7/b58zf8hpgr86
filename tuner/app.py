@@ -35,7 +35,9 @@ def main(argv=None):
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME); app.setOrganizationName(ORG_NAME)
-    app.setWindowIcon(QIcon(str(asset("icon.png"))))
+    # the .ico carries a frame drawn for each size; a single large PNG would
+    # be downscaled by the shell and lose the ridgelines
+    app.setWindowIcon(QIcon(str(asset("torquetune.ico"))))
     apply_classic(app)
 
     tune = Tune.load(args.tune) if args.tune else None
