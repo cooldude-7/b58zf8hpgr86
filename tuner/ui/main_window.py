@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
                          checked=intro_enabled())
         self.a_intro.setToolTip("Show the animated VE surface while the application loads")
         self.a_intro.triggered.connect(set_intro_enabled)
+        self.a_intro_replay = A("&Replay start-up screen", self, triggered=self.replay_intro)
 
     def _build_menus(self):
         mb = self.menuBar()
@@ -264,6 +265,7 @@ class MainWindow(QMainWindow):
         self.m_view.addAction(self.a_theme_classic); self.m_view.addAction(self.a_theme_dark)
         self.m_view.addSeparator()
         self.m_view.addAction(self.a_intro)
+        self.m_view.addAction(self.a_intro_replay)
 
     def _build_central(self):
         self.tabs = QTabWidget()
@@ -664,6 +666,12 @@ class MainWindow(QMainWindow):
         self.datalog.set_log(log["time_s"], {
             "rpm": log["rpm"], "boost": kpa_abs_to_boost_psi(log["map_kpa"]),
             "lambda": log["lam"], "torque": log["torque_ref"]})
+
+    def replay_intro(self):
+        """Watch it without relaunching -- and a way to tell "the build has
+        no start-up screen" apart from "it came and went too early"."""
+        from .intro import show_intro
+        return show_intro(self, hold_ms=5000)
 
     def about(self):
         """Banner over text. QMessageBox puts its pixmap beside the text and

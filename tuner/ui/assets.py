@@ -63,12 +63,29 @@ def icon(name: str = "torquetune.ico"):
 
 
 def report() -> str:
-    """Which images resolved and where -- for --check-assets."""
-    lines = []
+    """Which images resolved and where, and what build this is -- the two
+    questions behind "it does not look right on my machine"."""
+    import time
+
+    from .. import APP_VERSION
+
+    lines = [f"TorqueTune {APP_VERSION}"]
+    exe = Path(sys.executable)
+    try:
+        lines.append("built: " + time.strftime("%Y-%m-%d %H:%M",
+                                               time.localtime(exe.stat().st_mtime)))
+    except OSError:
+        pass
+    lines.append("")
     for name in ("torquetune.ico", "icon.png", "splash.png", "intro.png"):
         p = asset(name)
         lines.append(f"{'found  ' if p.exists() else 'MISSING'}  {name}\n          {p}")
     lines.append("")
+    try:
+        from .intro import intro_enabled
+        lines.append(f"start-up screen: {'on' if intro_enabled() else 'OFF in View menu'}")
+    except Exception:
+        pass
     lines.append(f"frozen: {bool(getattr(sys, 'frozen', False))}")
     lines.append(f"_MEIPASS: {getattr(sys, '_MEIPASS', '(none)')}")
     return "\n".join(lines)

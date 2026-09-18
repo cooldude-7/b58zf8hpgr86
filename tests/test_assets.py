@@ -400,3 +400,24 @@ def test_window_is_sized_before_it_is_shown(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr("PySide6.QtWidgets.QApplication.__init__", lambda self, *a, **k: None)
     app_mod.main(["--no-splash", "--screenshot", str(tmp_path / "s.png")])
     assert order == ["geometry", "show"], order
+
+
+def test_replay_shows_it_without_relaunching(qapp):
+    """Distinguishes "this build has no start-up screen" from "it came and
+    went before the window appeared"."""
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    intro = win.replay_intro()
+    assert intro is not None and intro.isVisible()
+    intro.dismiss(0)
+    win.close()
+
+
+def test_report_names_the_build(qapp):
+    from tuner.ui.assets import report
+
+    text = report()
+    assert "TorqueTune" in text
+    assert "start-up screen:" in text
