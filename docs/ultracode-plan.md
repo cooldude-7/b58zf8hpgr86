@@ -92,7 +92,7 @@ what is in the ECU.
 | `Tune.validate()`: required tables, shapes, monotonic axes, scalar ranges, chen_flynn length; called on load and before `_replace_tune`; sim tick catches and stops on error | `tune.py`, `main_window.py`, `sim_ecu.py` | test loading a tune missing `knock` shows a message, sim keeps running old tune |
 | `ECUConnection` contract: `identify`, `describe_tables`, `read_table`, `write_cell`, `write_table`, `burn`, `error` signal; fixed table dimensions from descriptors; burn moves off `MainWindow` | `tuner/core/connection.py`, `sim_ecu.py`, `main_window.py` | `tests/test_live.py`: write → echo → cell shows RAM; burn → CRC match → FLASH |
 | Armed live-write mode with visible indicator; unarmed edits stay LOCAL | `table_editor.py`, `main_window.py` | GUI test: unarmed edit does not change sim output |
-| Frozen exe: launcher script, ship `tools/shift` as data, resolve `_MEIPASS` | `packaging/launcher.py`, `tuner.spec`, `sim_ecu.py` | build then run `TorqueTune.exe --screenshot` on Windows (manual gate) |
+| Frozen exe: launcher script, ship `tools/shift` as data, resolve `_MEIPASS` | `packaging/launcher.py`, `tuner.spec`, `sim_ecu.py` | build then run `LambdaOne.exe --screenshot` on Windows (manual gate) |
 | Convert tests to pytest, `conftest.py` with offscreen Qt and shared QApplication, add `test` extra, GitHub Actions | `tests/`, `pyproject.toml`, `.github/workflows/ci.yml` | CI green |
 
 Fleet: yes, 4 agents by row groups (dirty/validate, connection/live-write, packaging, tests). Exit: all tests pass in CI; a NaN cannot reach the sim by any path.

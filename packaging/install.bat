@@ -1,12 +1,12 @@
 @echo off
-REM Install an already-built TorqueTune for the current user.
+REM Install an already-built Lambda One for the current user.
 REM Double-click this, or run it from anywhere. Use build.bat instead if
-REM dist\TorqueTune does not exist yet.
+REM dist\LambdaOne does not exist yet.
 cd /d "%~dp0\.."
 powershell -ExecutionPolicy Bypass -File "%~dp0install.ps1" %*
 if errorlevel 1 goto :failed
 echo.
-echo Done. Look for TorqueTune on the desktop and in the Start menu.
+echo Done. Look for Lambda One on the desktop and in the Start menu.
 goto :end
 
 :failed

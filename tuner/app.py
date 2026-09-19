@@ -21,7 +21,7 @@ def _set_windows_app_id():
         return
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TorqueTune.Tuner")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LambdaOne.Tuner")
     except Exception:
         pass            # cosmetic only; never worth failing a launch over
 
@@ -44,7 +44,7 @@ def open_tune(path):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="torquetune")
+    ap = argparse.ArgumentParser(prog="lambdaone")
     ap.add_argument("--demo", action="store_true", help="connect to the demo ECU on start")
     ap.add_argument("--screenshot", metavar="PNG", help="render the main window to a file and exit")
     ap.add_argument("--three-d", action="store_true", help="with --screenshot: show the 3D surface")
@@ -73,7 +73,7 @@ def main(argv=None):
         print(text)
         # the frozen build has no console, so say it in a window too
         QApplication(sys.argv[:1])
-        QMessageBox.information(None, "TorqueTune — images", text)
+        QMessageBox.information(None, "Lambda One — images", text)
         return 0
 
     from PySide6.QtCore import QTimer
@@ -92,7 +92,7 @@ def main(argv=None):
     # would be downscaled by the shell and lose the grid. Set it only if it
     # really loaded -- a null icon overrides the one Windows takes from the
     # exe and leaves a blank taskbar button.
-    app_icon = assets.icon("torquetune.ico") or assets.icon("icon.png")
+    app_icon = assets.icon("lambdaone.ico") or assets.icon("icon.png")
     if app_icon is not None:
         app.setWindowIcon(app_icon)
     apply_classic(app)

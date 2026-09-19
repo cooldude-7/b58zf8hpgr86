@@ -6,12 +6,13 @@
       powershell -ExecutionPolicy Bypass -File uninstall.ps1
 #>
 [CmdletBinding()]
-param([string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\TorqueTune"))
+param([string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\LambdaOne"))
 
 $ErrorActionPreference = "Continue"
-$AppName = "TorqueTune"
+$AppName = "Lambda One"          # shown to a person
+$AppFile = "LambdaOne"            # exe and folder names
 
-Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process -Name $AppFile -ErrorAction SilentlyContinue | ForEach-Object {
     $_.CloseMainWindow() | Out-Null
     if (-not $_.WaitForExit(5000)) { $_.Kill() }
 }
@@ -22,7 +23,7 @@ foreach ($dir in @((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Program
 }
 
 # Only give .tune back if it still points at us -- another program may own it now.
-$progId = "TorqueTune.Tune"
+$progId = "LambdaOne.Tune"
 $cur = (Get-ItemProperty -Path "HKCU:\Software\Classes\.tune" -Name "(Default)" `
         -ErrorAction SilentlyContinue)."(Default)"
 if ($cur -eq $progId) { Remove-Item "HKCU:\Software\Classes\.tune" -Recurse -Force -ErrorAction SilentlyContinue }

@@ -1,5 +1,5 @@
 <#
-  Reports the state of a TorqueTune install in one pass: what was built,
+  Reports the state of a Lambda One install in one pass: what was built,
   what was installed, what shortcuts and registry entries exist, and
   whether the art is where the app looks for it. Reads only -- it changes
   nothing.
@@ -7,7 +7,8 @@
       powershell -ExecutionPolicy Bypass -File packaging\doctor.ps1
 #>
 $ErrorActionPreference = "Continue"
-$AppName = "TorqueTune"
+$AppName = "Lambda One"          # shown to a person
+$AppFile = "LambdaOne"            # exe and folder names
 
 $here = $PSScriptRoot
 if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Definition }
@@ -20,7 +21,7 @@ function Say($label, $ok, $detail) {
 }
 
 Write-Host ""
-Write-Host "TorqueTune doctor"
+Write-Host "Lambda One doctor"
 Write-Host "  repo: $repo"
 
 Write-Host ""
@@ -35,20 +36,20 @@ try {
 } catch { Say "git" $false "not available" }
 
 Write-Host ""
-Write-Host "Build  ($repo\dist\TorqueTune)"
-$built = Join-Path $repo "dist\$AppName\$AppName.exe"
+Write-Host "Build  ($repo\dist\LambdaOne)"
+$built = Join-Path $repo "dist\$AppFile\$AppFile.exe"
 Say "exe built" (Test-Path $built) $built
-$srcAssets = Join-Path $repo "dist\$AppName\_internal\tuner\ui\assets"
-foreach ($f in @("torquetune.ico", "icon.png", "splash.png")) {
+$srcAssets = Join-Path $repo "dist\$AppFile\_internal\tuner\ui\assets"
+foreach ($f in @("lambdaone.ico", "icon.png", "splash.png")) {
     Say "  $f" (Test-Path (Join-Path $srcAssets $f)) ""
 }
 
 Write-Host ""
-$dir = Join-Path $env:LOCALAPPDATA "Programs\$AppName"
+$dir = Join-Path $env:LOCALAPPDATA "Programs\$AppFile"
 Write-Host "Install  ($dir)"
-$exe = Join-Path $dir "$AppName.exe"
+$exe = Join-Path $dir "$AppFile.exe"
 Say "installed exe" (Test-Path $exe) ""
-foreach ($f in @("torquetune.ico", "icon.png", "splash.png")) {
+foreach ($f in @("lambdaone.ico", "icon.png", "splash.png")) {
     Say "  $f" (Test-Path (Join-Path $dir "_internal\tuner\ui\assets\$f")) ""
 }
 
@@ -84,8 +85,8 @@ foreach ($name in @("Start menu", "Desktop")) {
 Write-Host ""
 Write-Host "Registry"
 $progId = (Get-ItemProperty "HKCU:\Software\Classes\.tune" -Name "(Default)" -ErrorAction SilentlyContinue)."(Default)"
-Say ".tune association" ($progId -eq "TorqueTune.Tune") $progId
-$cmd = (Get-ItemProperty "HKCU:\Software\Classes\TorqueTune.Tune\shell\open\command" -Name "(Default)" -ErrorAction SilentlyContinue)."(Default)"
+Say ".tune association" ($progId -eq "LambdaOne.Tune") $progId
+$cmd = (Get-ItemProperty "HKCU:\Software\Classes\LambdaOne.Tune\shell\open\command" -Name "(Default)" -ErrorAction SilentlyContinue)."(Default)"
 Say "open command" ([bool]$cmd) $cmd
 $unin = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName" -ErrorAction SilentlyContinue
 Say "Apps & features entry" ([bool]$unin) $(if ($unin) { "$($unin.DisplayName) $($unin.DisplayVersion)" })
@@ -115,7 +116,7 @@ Write-Host "Icon in the exe"
 # Windows hands back its own generic application icon for an exe that
 # carries none, so presence proves nothing. Compare against the icon the
 # build is supposed to have embedded.
-$ours = Join-Path $repo "tuner\ui\assets\torquetune.ico"
+$ours = Join-Path $repo "tuner\ui\assets\lambdaone.ico"
 foreach ($cand in @($exe, $built)) {
     if (-not (Test-Path $cand)) { continue }
     try {

@@ -52,7 +52,7 @@ has. See
 
 ## Running the tuner application
 
-![TorqueTune — the VE surface as the tuner draws it](docs/assets/cover.png)
+![Lambda One — the VE surface as the tuner draws it](docs/assets/cover.png)
 
 ```bash
 pip install -e .            # once; installs PySide6, pyqtgraph, numpy, matplotlib
@@ -68,8 +68,8 @@ replace it behind `EngineSynth.render()`.
 Windows: run `packaging\build.bat` from the repo root (see
 [packaging/README.md](packaging/README.md), which also lists what to check
 if no shortcut appears). It builds
-`dist\TorqueTune\TorqueTune.exe`, then installs it for the current user —
-a copy under `%LOCALAPPDATA%\Programs\TorqueTune`, a Start menu and desktop
+`dist\LambdaOne\LambdaOne.exe`, then installs it for the current user —
+a copy under `%LOCALAPPDATA%\Programs\LambdaOne`, a Start menu and desktop
 shortcut carrying the app icon, `.tune` files associated so they open on a
 double-click, and an entry in **Apps & features**. Pass `/nodesktop` to skip
 the desktop shortcut; remove it from Apps & features or run

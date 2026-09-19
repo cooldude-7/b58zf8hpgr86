@@ -1,4 +1,4 @@
-"""Render the TorqueTune cover art, splash and application icon.
+"""Render the Lambda One cover art, splash and application icon.
 
     python tools/make_cover.py
 
@@ -13,7 +13,7 @@ Outputs:
     tuner/ui/assets/intro.png        1600x900  in-app start-up screen
     tuner/ui/assets/splash.png        880x420  About box
     tuner/ui/assets/icon.png          512x512  source for the icon
-    tuner/ui/assets/torquetune.ico             16..256 px, for Windows
+    tuner/ui/assets/lambdaone.ico             16..256 px, for Windows
 """
 import math
 import os
@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QPointF, QRectF, Qt                      # noqa: E402
 from PySide6.QtGui import (QColor, QFont, QGuiApplication, QImage,   # noqa: E402
                            QPainter, QPen, QPolygonF)
+from PySide6.QtSvg import QSvgRenderer                               # noqa: E402
 
 from tqmodel.synth import truth_ve                                   # noqa: E402
 from tuner.ui.colors import heat                                     # noqa: E402
@@ -191,7 +192,7 @@ def cover(path, w=1600, h=900):
     lo, hi = draw_surface(p, QRectF(150, 250, w - 430, h - 360), 24, 18)
     colour_bar(p, QRectF(w - 78, 300, 14, 250), lo, hi)
     p.setPen(QColor("#F0F0F0")); p.setFont(font(56, bold=True))
-    p.drawText(QRectF(70, 74, 900, 66), Qt.AlignLeft | Qt.AlignVCenter, "TorqueTune")
+    p.drawText(QRectF(70, 74, 900, 66), Qt.AlignLeft | Qt.AlignVCenter, "Lambda One")
     p.setPen(QColor("#9A9A9A")); p.setFont(font(19, mono=True))
     p.drawText(QRectF(72, 142, 900, 26), Qt.AlignLeft | Qt.AlignVCenter,
                "volumetric efficiency  ·  f(rpm, MAP)")
@@ -209,7 +210,7 @@ def intro(path, w=1600, h=900):
     img, p = canvas(w, h)
     lo, hi = draw_surface(p, QRectF(70, 190, w - 140, h - 290), 24, 18)
     p.setPen(QColor("#F0F0F0")); p.setFont(font(56, bold=True))
-    p.drawText(QRectF(70, 74, 900, 66), Qt.AlignLeft | Qt.AlignVCenter, "TorqueTune")
+    p.drawText(QRectF(70, 74, 900, 66), Qt.AlignLeft | Qt.AlignVCenter, "Lambda One")
     p.setPen(QColor("#9A9A9A")); p.setFont(font(19, mono=True))
     p.drawText(QRectF(72, 142, 900, 26), Qt.AlignLeft | Qt.AlignVCenter,
                "volumetric efficiency  ·  f(rpm, MAP)")
@@ -226,7 +227,7 @@ def splash(path, w=880, h=420):
     draw_surface(p, QRectF(30, 120, w - 60, h - 150), 20, 14,
                  az=-46.0, el=16.0, zs=0.45, box=False, labels=False)
     p.setPen(QColor("#F0F0F0")); p.setFont(font(40, bold=True))
-    p.drawText(QRectF(40, 40, w - 80, 46), Qt.AlignLeft | Qt.AlignVCenter, "TorqueTune")
+    p.drawText(QRectF(40, 40, w - 80, 46), Qt.AlignLeft | Qt.AlignVCenter, "Lambda One")
     p.setPen(QColor("#9A9A9A")); p.setFont(font(15, mono=True))
     p.drawText(QRectF(42, 88, w - 80, 22), Qt.AlignLeft | Qt.AlignVCenter,
                "volumetric efficiency  ·  f(rpm, MAP)")
@@ -238,10 +239,49 @@ def shade(c, f):
     return QColor(int(c.red() * f), int(c.green() * f), int(c.blue() * f))
 
 
+# The lambda sits in the bottom left, over the surface. It is dropped from
+# the smallest frames: at 16 and 24 px the letter is four pixels of stem and
+# reads as a smudge, and the silhouette of the surface is what carries the
+# icon at that size anyway.
+LAMBDA_MIN = 32
+LAMBDA_H = 0.44          # lambda height, as a fraction of the frame
+LAMBDA_PAD = 0.045       # margin from the left and bottom edges
+
+
+def _lambda(p, size, frame):
+    """The brand mark over the surface, from the same SVG the start-up
+    screen uses. Given a dark rim, because the letter carries the heat-map
+    colours and would otherwise dissolve into the surface behind it."""
+    src = ROOT / "tools" / "brand" / "lambda-mark.svg"
+    if frame < LAMBDA_MIN or not src.exists():
+        return
+    r = QSvgRenderer(str(src))
+    if not r.isValid():
+        return
+    box = r.viewBoxF()
+    h = size * LAMBDA_H
+    w = h * box.width() / box.height()
+    x, y = size * LAMBDA_PAD, size * (1.0 - LAMBDA_PAD) - h
+
+    # The rim: the same glyph painted flat and dark, a touch larger, under
+    # the coloured one.
+    rim = max(size * 0.012, 1.0)
+    img = QImage(int(w + 2 * rim), int(h + 2 * rim), QImage.Format_ARGB32_Premultiplied)
+    img.fill(0)
+    q = QPainter(img)
+    q.setRenderHint(QPainter.Antialiasing, True)
+    r.render(q, QRectF(0, 0, img.width(), img.height()))
+    q.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    q.fillRect(img.rect(), QColor(0, 0, 0, 150))
+    q.end()
+    p.drawImage(QRectF(x - rim, y - rim, img.width(), img.height()), img)
+    r.render(p, QRectF(x, y, w, h))
+
+
 def mark(size, cols, rows, stroke):
-    """The icon mark: the surface alone on transparency, drawn as the grid
-    the table actually is -- a cell edge in both directions, the way the 3D
-    view draws it. No tile, no text; the silhouette is the logo.
+    """The icon mark: the surface as the grid the table actually is -- a
+    cell edge in both directions, the way the 3D view draws it -- with the
+    lambda in the bottom left. No tile, no text; the silhouette is the logo.
 
     Rendered at 4x and reduced. Below about a pixel of stroke width Qt drops
     edges unevenly and a regular grid turns into moire.
@@ -259,6 +299,7 @@ def mark(size, cols, rows, stroke):
         p.setPen(QPen(shade(c, 0.45), stroke * ss))
         p.setBrush(c)
         p.drawPolygon(poly)
+    _lambda(p, size * ss, size)
     p.end()
     return img.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
@@ -294,8 +335,8 @@ def main():
     cover(ROOT / "docs" / "assets" / "cover.png")
     intro(assets / "intro.png")
     splash(assets / "splash.png")
-    icon(assets / "icon.png", assets / "torquetune.ico")
-    print("wrote docs/assets/cover.png, tuner/ui/assets/{splash.png,icon.png,torquetune.ico}")
+    icon(assets / "icon.png", assets / "lambdaone.ico")
+    print("wrote docs/assets/cover.png, tuner/ui/assets/{splash.png,icon.png,lambdaone.ico}")
 
 
 if __name__ == "__main__":

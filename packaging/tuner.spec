@@ -1,5 +1,5 @@
 # PyInstaller spec -- build with:  pyinstaller packaging/tuner.spec
-# Produces dist/TorqueTune/TorqueTune.exe (onedir: faster startup than onefile)
+# Produces dist/LambdaOne/LambdaOne.exe (onedir: faster startup than onefile)
 import os
 block_cipher = None
 root = os.path.abspath(os.path.join(os.path.dirname(SPEC), ".."))
@@ -18,7 +18,7 @@ a = Analysis(
     cipher=block_cipher,
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="TorqueTune",
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LambdaOne",
           console=False,
-          icon=os.path.join(root, "tuner", "ui", "assets", "torquetune.ico"))
-coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="TorqueTune")
+          icon=os.path.join(root, "tuner", "ui", "assets", "lambdaone.ico"))
+coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="LambdaOne")

@@ -1,5 +1,5 @@
 <#
-  Installs TorqueTune for the current user: copies the build somewhere
+  Installs Lambda One for the current user: copies the build somewhere
   stable, then makes Start menu and desktop shortcuts, associates .tune
   files, and registers an entry in Apps & features so it uninstalls the
   way anything else does.
@@ -19,7 +19,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AppName = "TorqueTune"
+$AppName = "Lambda One"          # shown to a person
+$AppFile = "LambdaOne"            # exe and folder names
 
 # Work out where this script is without trusting $PSScriptRoot: in Windows
 # PowerShell it comes back empty when read from a param() default, which
@@ -29,10 +30,10 @@ if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Definition 
 if (-not $here) { $here = (Get-Location).Path }
 $repo = Split-Path -Parent $here
 
-if (-not $Source)     { $Source = Join-Path $repo "dist\TorqueTune" }
-if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\TorqueTune" }
+if (-not $Source)     { $Source = Join-Path $repo "dist\LambdaOne" }
+if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\LambdaOne" }
 
-if (-not (Test-Path (Join-Path $Source "$AppName.exe"))) {
+if (-not (Test-Path (Join-Path $Source "$AppFile.exe"))) {
     throw "No build found at $Source. Run packaging\build.bat first."
 }
 
@@ -42,7 +43,7 @@ $newest = Get-ChildItem -Path (Join-Path $repo "tuner"), (Join-Path $repo "tqmod
                         -Recurse -File -ErrorAction SilentlyContinue |
           Where-Object { $_.Extension -in ".py", ".png", ".ico" } |
           Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($newest -and (Get-Item (Join-Path $Source "$AppName.exe")).LastWriteTime -lt $newest.LastWriteTime) {
+if ($newest -and (Get-Item (Join-Path $Source "$AppFile.exe")).LastWriteTime -lt $newest.LastWriteTime) {
     Write-Warning "The build is older than the source ($($newest.Name) changed after it)."
     Write-Warning "Run packaging\build.bat to rebuild first, or this installs the old one."
     $answer = Read-Host "Install the old build anyway? [y/N]"
@@ -50,7 +51,7 @@ if ($newest -and (Get-Item (Join-Path $Source "$AppName.exe")).LastWriteTime -lt
 }
 
 # A running copy locks its own files, so stop it before overwriting.
-Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process -Name $AppFile -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "Closing the running $AppName..."
     $_.CloseMainWindow() | Out-Null
     if (-not $_.WaitForExit(5000)) { $_.Kill() }
@@ -64,7 +65,7 @@ robocopy $Source $InstallDir /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copy failed (robocopy $LASTEXITCODE)" }
 $global:LASTEXITCODE = 0
 
-$exe = Join-Path $InstallDir "$AppName.exe"
+$exe = Join-Path $InstallDir "$AppFile.exe"
 $uninstall = Join-Path $InstallDir "uninstall.ps1"
 Copy-Item (Join-Path $here "uninstall.ps1") $uninstall -Force
 
@@ -90,11 +91,11 @@ if (-not $NoDesktop) {
 }
 
 # .tune files open in the tuner. Per-user classes, so no elevation.
-$progId = "TorqueTune.Tune"
+$progId = "LambdaOne.Tune"
 New-Item -Path "HKCU:\Software\Classes\.tune" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\Software\Classes\.tune" -Name "(Default)" -Value $progId
 New-Item -Path "HKCU:\Software\Classes\$progId\DefaultIcon" -Force | Out-Null
-Set-ItemProperty -Path "HKCU:\Software\Classes\$progId" -Name "(Default)" -Value "TorqueTune tune"
+Set-ItemProperty -Path "HKCU:\Software\Classes\$progId" -Name "(Default)" -Value "Lambda One tune"
 Set-ItemProperty -Path "HKCU:\Software\Classes\$progId\DefaultIcon" -Name "(Default)" -Value "$exe,0"
 New-Item -Path "HKCU:\Software\Classes\$progId\shell\open\command" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\Software\Classes\$progId\shell\open\command" -Name "(Default)" `

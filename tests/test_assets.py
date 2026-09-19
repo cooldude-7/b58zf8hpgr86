@@ -5,7 +5,7 @@ from tuner.ui.assets import asset
 
 
 def test_assets_exist():
-    for name in ("icon.png", "splash.png", "intro.png", "torquetune.ico",
+    for name in ("icon.png", "splash.png", "intro.png", "lambdaone.ico",
                  "brand-mark.png", "brand-word.png"):
         assert asset(name).exists(), name
 
@@ -43,7 +43,7 @@ def test_ico_frames_are_drawn_not_downscaled(qapp):
     resolve, so the 16 px frame is not the 256 px one shrunk."""
     from PIL import IcoImagePlugin
     from tools.make_cover import ICON_FRAMES, mark
-    fh = open(asset("torquetune.ico"), "rb")          # IcoFile reads lazily
+    fh = open(asset("lambdaone.ico"), "rb")          # IcoFile reads lazily
     ico = IcoImagePlugin.IcoFile(fh)
     for n in (16, 64):
         cols, rows, stroke = ICON_FRAMES[n]
@@ -58,7 +58,7 @@ def test_ico_frames_are_drawn_not_downscaled(qapp):
 def test_ico_carries_small_sizes(qapp):
     """Windows draws the title bar at 16 px; an .ico with only a 256 px
     frame gets downscaled badly by the shell."""
-    sizes = {s.width() for s in QIcon(str(asset("torquetune.ico"))).availableSizes()}
+    sizes = {s.width() for s in QIcon(str(asset("lambdaone.ico"))).availableSizes()}
     assert {16, 32, 256} <= sizes, sizes
 
 
@@ -68,10 +68,10 @@ def test_icon_helper_returns_none_rather_than_a_null_icon(qapp, monkeypatch, tmp
     one at all."""
     from tuner.ui import assets as A
 
-    assert A.icon("torquetune.ico") is not None
+    assert A.icon("lambdaone.ico") is not None
     monkeypatch.setattr(A, "_roots", lambda: iter([tmp_path]))
-    assert A.icon("torquetune.ico") is None
-    assert A.found("torquetune.ico") is False
+    assert A.icon("lambdaone.ico") is None
+    assert A.found("lambdaone.ico") is False
 
 
 def test_asset_search_covers_the_frozen_layouts(monkeypatch, tmp_path):
@@ -79,7 +79,7 @@ def test_asset_search_covers_the_frozen_layouts(monkeypatch, tmp_path):
     beside the exe. Look in both rather than assume one."""
     from tuner.ui import assets as A
 
-    exe = tmp_path / "app" / "TorqueTune.exe"
+    exe = tmp_path / "app" / "LambdaOne.exe"
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"")
     target = tmp_path / "app" / "_internal" / "tuner" / "ui" / "assets"
@@ -96,7 +96,7 @@ def test_report_names_every_image(qapp):
     from tuner.ui import assets as A
 
     text = A.report()
-    for name in ("torquetune.ico", "icon.png", "splash.png"):
+    for name in ("lambdaone.ico", "icon.png", "splash.png"):
         assert name in text
     assert "MISSING" not in text, text
 
@@ -431,7 +431,7 @@ def test_report_names_the_build(qapp):
     from tuner.ui.assets import report
 
     text = report()
-    assert "TorqueTune" in text
+    assert "Lambda One" in text
     assert "start-up screen:" in text
 
 

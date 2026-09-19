@@ -41,7 +41,7 @@ def _tools_dir() -> Path:
     import shutil
     base = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
     root = Path(base) if base else Path.home() / ".local" / "share"
-    dst = root / "TorqueTune" / "tools"
+    dst = root / "LambdaOne" / "tools"
     src = Path(getattr(sys, "_MEIPASS", ".")) / "tools"
     if not (dst / "shift" / "coordinator.py").exists() and src.exists():
         dst.mkdir(parents=True, exist_ok=True)

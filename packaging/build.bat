@@ -1,5 +1,5 @@
 @echo off
-REM Build TorqueTune.exe on Windows and install it for the current user.
+REM Build LambdaOne.exe on Windows and install it for the current user.
 REM Run from the repo root.  build.bat /nodesktop  skips the desktop icon.
 REM
 REM No multi-line ( ) blocks in this file on purpose: if it ever reaches a
@@ -14,7 +14,7 @@ pyinstaller --noconfirm packaging\tuner.spec
 if errorlevel 1 goto :buildfailed
 
 echo.
-echo Built: dist\TorqueTune\TorqueTune.exe
+echo Built: dist\LambdaOne\LambdaOne.exe
 echo.
 echo Installing...
 
@@ -36,13 +36,13 @@ goto :end
 :installfailed
 echo.
 echo INSTALL FAILED -- the exe is built and runnable at
-echo   dist\TorqueTune\TorqueTune.exe
+echo   dist\LambdaOne\LambdaOne.exe
 echo but no shortcut was made. The error is above this line.
 goto :end
 
 :done
 echo.
-echo Done. Look for TorqueTune on the desktop and in the Start menu.
+echo Done. Look for Lambda One on the desktop and in the Start menu.
 
 :end
 echo.

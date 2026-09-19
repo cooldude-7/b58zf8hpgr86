@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       QT_QPA_PLATFORM: offscreen      # no display on a runner
-      TORQUETUNE_NO_AUDIO: "1"        # no sound card either
+      LAMBDAONE_NO_AUDIO: "1"        # no sound card either
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

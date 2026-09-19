@@ -7,8 +7,8 @@ git pull
 packaging\build.bat
 ```
 
-That builds `dist\TorqueTune\TorqueTune.exe` and then installs it for the
-current user: a copy under `%LOCALAPPDATA%\Programs\TorqueTune`, a Start
+That builds `dist\LambdaOne\LambdaOne.exe` and then installs it for the
+current user: a copy under `%LOCALAPPDATA%\Programs\LambdaOne`, a Start
 menu entry, a desktop shortcut, `.tune` files associated, and an entry in
 Apps & features. No admin rights needed.
 
@@ -43,16 +43,16 @@ whole thing rather than working through the steps below by hand.
 
 Work down the list; each step tells you which part failed.
 
-1. **Does the exe exist?** `dir dist\TorqueTune\TorqueTune.exe`
+1. **Does the exe exist?** `dir dist\LambdaOne\LambdaOne.exe`
    Missing means the build failed, not the install. Run `packaging\build.bat`
    from a Command Prompt (not by double-clicking) and read the error.
 2. **Did the install run?** Run `packaging\install.bat` on its own. It prints
    what it did and pauses, so the window stays open.
 3. **Is it actually installed?**
-   `dir "%LOCALAPPDATA%\Programs\TorqueTune"` and
-   `dir "%APPDATA%\Microsoft\Windows\Start Menu\Programs\TorqueTune.lnk"`
+   `dir "%LOCALAPPDATA%\Programs\LambdaOne"` and
+   `dir "%APPDATA%\Microsoft\Windows\Start Menu\Programs\LambdaOne.lnk"`
    If both exist, the install worked and the problem is the shell's search
-   index — press Start and type TorqueTune, or open the Start menu folder
+   index — press Start and type Lambda One, or open the Start menu folder
    with `explorer "%APPDATA%\Microsoft\Windows\Start Menu\Programs"`.
 4. **Blocked by policy?** If PowerShell refuses to run the script,
    `-ExecutionPolicy Bypass` is already passed, so the block is a machine

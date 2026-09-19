@@ -40,8 +40,8 @@ def test_install_can_be_run_on_its_own():
 
 def test_spec_embeds_the_icon():
     spec = (PKG / "tuner.spec").read_text()
-    assert "torquetune.ico" in spec
-    assert (ROOT / "tuner" / "ui" / "assets" / "torquetune.ico").exists()
+    assert "lambdaone.ico" in spec
+    assert (ROOT / "tuner" / "ui" / "assets" / "lambdaone.ico").exists()
 
 
 def test_shortcuts_take_their_icon_from_the_exe():
@@ -133,7 +133,7 @@ def test_install_does_not_lean_on_psscriptroot_in_param_defaults():
 def test_install_finds_the_build_relative_to_itself():
     """Double-clicked from Explorer the working directory is anyone's guess,
     so the default source must be derived from the script's own location."""
-    assert '$Source = Join-Path $repo "dist\\TorqueTune"' in INSTALL
+    assert '$Source = Join-Path $repo "dist\\LambdaOne"' in INSTALL
 
 
 def test_doctor_reports_every_stage():

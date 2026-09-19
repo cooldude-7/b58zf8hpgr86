@@ -50,7 +50,7 @@ def found(name: str) -> bool:
     return asset(name).exists()
 
 
-def icon(name: str = "torquetune.ico"):
+def icon(name: str = "lambdaone.ico"):
     """A QIcon, or None when the file is missing or unreadable. Never a null
     icon: setting one blanks the window and taskbar icon."""
     from PySide6.QtGui import QIcon
@@ -69,7 +69,7 @@ def report() -> str:
 
     from .. import APP_VERSION
 
-    lines = [f"TorqueTune {APP_VERSION}"]
+    lines = [f"Lambda One {APP_VERSION}"]
     exe = Path(sys.executable)
     try:
         lines.append("built: " + time.strftime("%Y-%m-%d %H:%M",
@@ -77,7 +77,7 @@ def report() -> str:
     except OSError:
         pass
     lines.append("")
-    for name in ("torquetune.ico", "icon.png", "splash.png", "intro.png"):
+    for name in ("lambdaone.ico", "icon.png", "splash.png", "intro.png"):
         p = asset(name)
         lines.append(f"{'found  ' if p.exists() else 'MISSING'}  {name}\n          {p}")
     lines.append("")
