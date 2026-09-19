@@ -3,30 +3,27 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
 # (group, [(label, kind, key)])   kinds: table, settings, page, curve, todo
+# Every entry opens something. Items that used to open a "not available in
+# this build" page are gone rather than greyed: in software somebody has
+# paid for, a dead end is worse than an absence. What they stood for lives
+# in docs/tuning-app-plan.md, where unbuilt things belong.
 TREE = [
     ("TQ-101 Course", [("Labs and progress", "course", "course")]),
     ("Engine Setup", [("Engine Constants", "settings", "engine"),
                       ("Injectors", "settings", "injectors"),
                       ("Trigger / Sensors", "settings", "trigger")]),
     ("Fuel", [("VE Table", "table", "ve"),
-              ("Lambda Target", "table", "lambda"),
-              ("Acceleration Enrichment", "todo", "accel")]),
+              ("Lambda Target", "table", "lambda")]),
     ("Direct Injection", [("Rail Pressure Target", "table", "rail_target"),
                           ("Injection Timing", "table", "soi"),
                           ("Pilot Fraction", "table", "inj_split"),
                           ("Injector & Pump", "settings", "di")]),
     ("Ignition", [("MBT Spark", "table", "mbt"),
-                  ("Knock Limit", "table", "knock"),
-                  ("Spark Efficiency Curve", "todo", "spark_eff")]),
+                  ("Knock Limit", "table", "knock")]),
     ("Torque", [("Base Torque", "table", "base_torque"),
-                ("Friction Model", "settings", "friction"),
-                ("Pedal Map", "todo", "pedal"),
-                ("Torque Structure", "todo", "torque_page")]),
+                ("Friction Model", "settings", "friction")]),
     ("Safety", [("Limits", "settings", "limits")]),
-    ("Boost", [("Boost Target", "table", "boost"),
-               ("Wastegate", "todo", "wastegate")]),
-    ("Transmission", [("Shift Schedule", "todo", "shift_sched"),
-                      ("Torque Reduction", "todo", "shift_cut")]),
+    ("Boost", [("Boost Target", "table", "boost")]),
     ("Datalogging", [("Log Viewer", "page", "datalog")]),
     ("Simulator", [("Live Powertrain", "page", "mimic"),
                    ("Controls", "page", "simdock")]),

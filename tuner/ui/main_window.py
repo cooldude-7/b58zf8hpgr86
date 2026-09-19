@@ -25,7 +25,7 @@ from .assets import asset
 from .intro import intro_enabled, set_intro_enabled
 from .nav_tree import TREE, NavTree
 from .sim_dock import SimulatorDock
-from .settings_page import PlaceholderPage, SettingsPage
+from .settings_page import SettingsPage
 from .table_editor import TableEditor
 
 INK = QColor("#303030")
@@ -330,9 +330,7 @@ class MainWindow(QMainWindow):
             w.maximize_toggled.connect(self.set_mimic_maximized)
             if self.conn.is_connected(): w.update_channels(self.conn.channels())
         else:
-            phase = {"torque_page": "Phase 4", "shift_cut": "Phase 4",
-                     "shift_sched": "Phase 4"}.get(key, "Phase 2")
-            w = PlaceholderPage(label, phase)
+            return                      # every kind in TREE is handled above
         self.editors[key] = w
         self.tabs.addTab(w, label); self.tabs.setCurrentWidget(w)
         self._update_edit_actions()

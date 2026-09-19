@@ -302,3 +302,31 @@ def test_a_genuinely_broken_tune_is_still_refused(tmp_path, tune):
     p.write_text(json.dumps(d))
     with pytest.raises(TuneError):
         Tune.load(p)
+
+
+def test_every_navigator_item_opens_something(win):
+    """No dead ends. An item that opens a "not available in this build"
+    page is worse than no item at all in software somebody has paid for,
+    so the tree and the thing that handles it must not drift apart."""
+    from tuner.ui.nav_tree import TREE
+
+    for _group, children in TREE:
+        for label, kind, key in children:
+            assert kind in ("course", "settings", "table", "page"), (label, kind)
+            win.open_item(kind, key, label)
+            if kind == "page" and key in ("datalog", "simdock"):
+                dock = win.dock_log if key == "datalog" else win.dock_sim
+                # isHidden, not isVisible: the fixture never shows the
+                # window, so nothing inside it is on screen either way
+                assert not dock.isHidden(), label   # these raise a dock, not a tab
+            else:
+                assert key in win.editors, label
+                assert win.tabs.currentWidget() is win.editors[key], label
+
+
+def test_no_placeholder_pages_remain(win):
+    """The class is gone; this fails loudly if it comes back rather than
+    quietly shipping a stub behind a navigator item."""
+    import tuner.ui.settings_page as sp
+
+    assert not hasattr(sp, "PlaceholderPage")

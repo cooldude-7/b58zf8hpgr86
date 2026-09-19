@@ -1,4 +1,4 @@
-"""Grouped-form settings pages, and a placeholder for what is not built."""
+"""Grouped-form settings pages."""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QGroupBox, QLabel,
                                QScrollArea, QSpinBox, QVBoxLayout, QWidget)
@@ -129,13 +129,3 @@ class SettingsPage(QWidget):
     def _set_cf(self, n, v):
         self.engine.setdefault("chen_flynn", [0, 0, 0, 0])[n] = v
         self.changed.emit()
-
-
-class PlaceholderPage(QWidget):
-    def __init__(self, label: str, phase: str, parent=None):
-        super().__init__(parent)
-        lay = QVBoxLayout(self)
-        t = QLabel(f"<b>{label}</b>")
-        s = QLabel(f"Not available in this build ({phase})."); s.setObjectName("dim")
-        lay.addWidget(t); lay.addWidget(s); lay.addStretch()
-        lay.setContentsMargins(10, 8, 10, 8)
