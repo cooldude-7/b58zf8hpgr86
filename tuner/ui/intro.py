@@ -351,9 +351,11 @@ class IntroOverlay(QWidget):
         p.setPen(DIM)
         # On the bottom row with the version, not above it: the equation
         # now occupies the space this line used to sit in.
+        # Only what the application is actually doing. With no strapline
+        # behind it the line is empty once loading is done, which is the
+        # point: the equation above it already says what this is.
         p.drawText(QRect(int(w * (MARK_LEFT + 0.002)), h - int(h * 0.06), int(w * 0.7), int(h * 0.04)),
-                   Qt.AlignLeft | Qt.AlignVCenter,
-                   self.status or "engine simulator  ·  speed density  ·  lambda feedback")
+                   Qt.AlignLeft | Qt.AlignVCenter, self.status)
         p.drawText(QRect(0, h - int(h * 0.06), w - int(w * 0.02), int(h * 0.04)),
                    Qt.AlignRight | Qt.AlignVCenter, f"version {APP_VERSION}")
 
