@@ -129,7 +129,10 @@ def main(argv=None):
         app.processEvents()
         step()
     if intro is not None:
-        intro.set_status("ready")
+        # Cleared rather than announced: the last step's label would
+        # otherwise sit there as though the work were still going on, and
+        # the screen has its own line to fall back to.
+        intro.set_status("")
 
     if args.sim is not None:
         win.use_simulator()
