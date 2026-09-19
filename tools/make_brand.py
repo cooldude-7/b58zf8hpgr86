@@ -13,8 +13,9 @@ teaches. The wordmark is Cormorant (SIL Open Font License) converted to
 outlines, so no font has to be installed on a user's machine.
 
 Outputs:
-    tuner/ui/assets/brand-mark.png    512 px tall, transparent
-    tuner/ui/assets/brand-word.png   1400 px wide, transparent
+    tuner/ui/assets/brand-mark.png       512 px tall, transparent
+    tuner/ui/assets/brand-word.png      1400 px wide, transparent
+    tuner/ui/assets/brand-formula.png   1800 px wide, transparent
 """
 import os
 import sys
@@ -30,6 +31,7 @@ from PySide6.QtSvg import QSvgRenderer                  # noqa: E402
 
 MARK_H = 512
 WORD_W = 1400
+FORMULA_W = 1800
 
 
 def render(src: Path, dest: Path, width=None, height=None):
@@ -63,6 +65,7 @@ def main():
     assets = ROOT / "tuner" / "ui" / "assets"
     render(src / "lambda-mark.svg", assets / "brand-mark.png", height=MARK_H)
     render(src / "lambda-word.svg", assets / "brand-word.png", width=WORD_W)
+    render(src / "lambda-formula.svg", assets / "brand-formula.png", width=FORMULA_W)
 
 
 if __name__ == "__main__":

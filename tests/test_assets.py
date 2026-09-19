@@ -6,14 +6,14 @@ from tuner.ui.assets import asset
 
 def test_assets_exist():
     for name in ("icon.png", "splash.png", "intro.png", "lambdaone.ico",
-                 "brand-mark.png", "brand-word.png"):
+                 "brand-mark.png", "brand-word.png", "brand-formula.png"):
         assert asset(name).exists(), name
 
 
 def test_brand_art_is_transparent(qapp):
     """The mark and the wordmark are drawn over the animating surface, so
     anything opaque behind them -- a tile, a card -- is a bug."""
-    for name in ("brand-mark.png", "brand-word.png"):
+    for name in ("brand-mark.png", "brand-word.png", "brand-formula.png"):
         im = QPixmap(str(asset(name))).toImage()
         assert not im.isNull(), name
         w, h = im.width(), im.height()
@@ -449,18 +449,18 @@ def test_brand_arrives_after_the_surface_has_built(qapp):
     w, h = 1600, 900
 
     # nothing of the brand while the surface is still rising
-    mark_in, _, word_in, _, _ = ov.brand_frame(w, h, t_ms=I.BUILD_MS)
-    assert mark_in == 0.0 and word_in == 0.0
+    mark_in, _, word_in, _, _, form_in, _ = ov.brand_frame(w, h, t_ms=I.BUILD_MS)
+    assert mark_in == 0.0 and word_in == 0.0 and form_in == 0.0
 
     # the mark is nearly there when the wordmark starts -- they overlap on
     # purpose, so the two read as one movement -- and is full shortly after
-    mark_in, _, word_in, _, _ = ov.brand_frame(w, h, t_ms=I.WORD_AT_MS)
+    mark_in, _, word_in, _, _, _, _ = ov.brand_frame(w, h, t_ms=I.WORD_AT_MS)
     assert word_in == 0.0 and mark_in > 0.9
-    mark_in, _, _, _, _ = ov.brand_frame(w, h, t_ms=I.MARK_AT_MS + I.MARK_IN_MS)
+    mark_in, _, _, _, _, _, _ = ov.brand_frame(w, h, t_ms=I.MARK_AT_MS + I.MARK_IN_MS)
     assert mark_in == 1.0
 
     # and the wordmark finishes within the hold, so it is actually seen
-    mark_in, mark_rect, word_in, word_rect, base = ov.brand_frame(
+    mark_in, mark_rect, word_in, word_rect, base, _, _ = ov.brand_frame(
         w, h, t_ms=I.WORD_AT_MS + I.WORD_IN_MS)
     assert word_in == 1.0
     assert I.WORD_AT_MS + I.WORD_IN_MS < I.HOLD_MS
@@ -487,5 +487,48 @@ def test_brand_falls_back_to_text_when_art_is_missing(qapp):
     ov._mark, ov._word = _QPixmap(), _QPixmap()      # as a failed load leaves them
     assert ov.brand_frame(1600, 900, t_ms=3000) is None
     ov.grab()                                        # must not raise
+    ov.dismiss(0)
+    win.close()
+
+
+def test_the_equation_arrives_last_and_is_seen(qapp):
+    """It fades in under the lockup, after the wordmark, and has to finish
+    well inside the hold or it is animation nobody watches."""
+    from tuner.ui import intro as I
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.resize(1600, 900)
+    win.show()
+    ov = I.show_intro(win, hold_ms=30_000)
+
+    _, _, _, _, _, form_in, _ = ov.brand_frame(1600, 900, t_ms=I.WORD_AT_MS)
+    assert form_in == 0.0, "must not start before the wordmark does"
+
+    _, _, _, word_rect, base, form_in, form_rect = ov.brand_frame(
+        1600, 900, t_ms=I.FORM_AT_MS + I.FORM_IN_MS)
+    assert form_in == 1.0
+    assert I.FORM_AT_MS + I.FORM_IN_MS < I.HOLD_MS - I.FADE_MS
+
+    # under the lockup, left-aligned with the mark, clear of the baseline
+    assert form_rect.top() > base
+    assert form_rect.left() < word_rect.left()
+    ov.dismiss(0)
+    win.close()
+
+
+def test_the_equation_fits_a_small_window(qapp):
+    """It is the widest thing on the screen, so it is the one that runs out
+    of room first."""
+    from tuner.ui import intro as I
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(None, persist_layout=False)
+    win.show()
+    ov = I.show_intro(win, hold_ms=30_000)
+    for w, h in ((1600, 900), (1280, 720), (1024, 640)):
+        *_, form_rect = ov.brand_frame(w, h, t_ms=3000)
+        assert form_rect.right() < w * 0.75, (w, h, form_rect.right())
+        assert form_rect.bottom() < h * 0.93, (w, h, form_rect.bottom())
     ov.dismiss(0)
     win.close()
