@@ -246,7 +246,8 @@ def shade(c, f):
 LAMBDA_MIN = 32
 LAMBDA_H = 0.44          # lambda height, as a fraction of the frame
 LAMBDA_PAD = 0.045       # margin from the edges
-LAMBDA_Y = 0.5           # 0 rides the top edge, 1 the bottom, 0.5 centres it
+LAMBDA_X = 0.100         # left edge of the lambda, as a fraction of the frame
+LAMBDA_Y = 0.36          # 0 rides the top edge, 1 the bottom, 0.5 centres it
 
 
 def _lambda(p, size, frame):
@@ -263,7 +264,7 @@ def _lambda(p, size, frame):
     h = size * LAMBDA_H
     w = h * box.width() / box.height()
     free = size * (1.0 - 2 * LAMBDA_PAD) - h
-    x, y = size * LAMBDA_PAD, size * LAMBDA_PAD + free * LAMBDA_Y
+    x, y = size * LAMBDA_X, size * LAMBDA_PAD + free * LAMBDA_Y
 
     # The rim: the same glyph painted flat and dark, a touch larger, under
     # the coloured one.
