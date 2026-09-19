@@ -120,6 +120,15 @@ view uses and the same VE truth surface the simulator calibrates against, so
 the picture cannot drift away from the model behind it. Regenerate with
 `python tools/make_cover.py` rather than editing the PNGs.
 
+The brand the start-up screen animates over that surface — the lambda and
+the wordmark — is not derived from the model, so its sources are the two
+SVGs in [tools/brand/](tools/brand/) and
+[tools/make_brand.py](tools/make_brand.py) rasterises them into
+`tuner/ui/assets/`. The lambda is filled with the application's own
+heat-map scale, the three stops of `tuner/ui/colors.py`. The wordmark is
+Cormorant (SIL Open Font License) converted to outlines, so no font has to
+be installed to run the application.
+
 ## Firmware
 
 `fw/` holds the C that runs the engine: crank and cam decoder,
