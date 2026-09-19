@@ -6,7 +6,7 @@ Read [what-it-does.md](what-it-does.md) first for the overall shape.
 ## Forward model
 
 ```
-air  = VE(rpm, MAP, cam_in, cam_ex) × Vd × MAP / (R · T_charge)
+air  = VE(rpm, MAP, cam_in, cam_ex) × (Vd / n) × MAP / (R · T_charge)
 
 T_ind = BaseTorque(air, rpm)                 ← measured at MBT, λ=1
         × SparkEff(MBT − spark)
@@ -16,6 +16,10 @@ T_brake = T_ind − FrictionTorque(rpm, load, temp)
 
 T_crank = T_brake − AccessoryLoad             ← what the transmission wants
 ```
+
+`Vd` is total displacement and `n` the cylinder count, so `air` is the
+charge mass in one cylinder on one cycle -- what `tqmodel.model.air_mass`
+and `fw/src/model.c` both return, and what an injector is sized against.
 
 `SparkEff` and `LambdaEff` are near-universal curves — ship defaults, verify on
 a dyno, do not author from scratch. `FrictionTorque` is a Chen-Flynn

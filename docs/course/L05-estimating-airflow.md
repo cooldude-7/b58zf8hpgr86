@@ -19,8 +19,15 @@ cylinder volume to get the mass that would be trapped if filling were
 perfect. Multiply by a calibrated factor for the fact that it is not.
 
 ```
-air = VE(rpm, MAP) × Vd × MAP / (R × T)
+air = VE(rpm, MAP) × (Vd / n) × MAP / (R × T)
 ```
+
+`Vd` is the engine's total displacement and `n` its cylinder count, so
+`Vd / n` is the volume of one cylinder and `air` is the charge mass
+trapped in one cylinder on one cycle. That is the quantity the injector
+has to be sized against, which is why the ECU works in it rather than in
+total flow. `MAP / (R × T)` is the ideal gas law: the density of the air
+available to be trapped.
 
 The calibrated factor is the volumetric efficiency table, and
 calibrating it is Lab 1.

@@ -32,7 +32,7 @@ needed in under ~100 ms.
 ## The math
 
 ```
-air = VE(rpm, MAP, cams) × Vd × MAP / (R · T_charge)
+air = VE(rpm, MAP, cams) × (Vd / n) × MAP / (R · T_charge)
 
 T   = BaseTorque(air, rpm) × SparkEff(MBT − spark) × LambdaEff(λ) − friction
 ```
