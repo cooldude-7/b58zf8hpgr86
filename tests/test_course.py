@@ -298,3 +298,53 @@ def test_the_page_marks_and_reports(qapp):
         w.conn.disconnect_ecu()
         w.tune.mark_saved()
         w.close()
+
+
+# ---- the plant is per-installation, and every one of them is tunable ----
+def test_the_same_seed_is_the_same_engine(qapp):
+    t = course.student_tune()
+    a, b = SimulatedECU(t, seed=12345), SimulatedECU(t, seed=12345)
+    c = SimulatedECU(t, seed=999)
+    for rpm, mp in ((1200, 40), (3000, 100), (6000, 200)):
+        assert a.plant_ve(rpm, mp) == b.plant_ve(rpm, mp)
+        assert a.plant_mbt(rpm, mp) == b.plant_mbt(rpm, mp)
+        assert a.plant_knock_limit(rpm, mp) == b.plant_knock_limit(rpm, mp)
+    assert a.plant_ve(3000, 100) != c.plant_ve(3000, 100)
+
+
+def test_the_seed_survives_a_restart(qapp):
+    """Closing the application mid-lab and coming back to a different
+    engine would throw the work away, so the seed is kept, not minted per
+    session."""
+    from tuner.core.sim_ecu import plant_seed
+
+    assert plant_seed() == plant_seed()
+    assert SimulatedECU(course.student_tune()).seed == plant_seed()
+
+
+@pytest.mark.parametrize("seed", [1, 7, 42, 1234, 99991, 2 ** 31 - 2])
+def test_every_seed_is_a_tunable_engine(qapp, seed):
+    """Different is not enough: each seed has to be an engine somebody can
+    actually calibrate. The shipped course tune must fail against it, and
+    the plant's own surfaces must pass -- otherwise a student somewhere
+    gets a lab that cannot be started or cannot be finished."""
+    t = course.student_tune()
+    s = SimulatedECU(t, seed=seed)
+
+    assert not course.LABS_BY_KEY["ve"].run(t, s).passed, "starts already solved"
+
+    ve = t.tables["ve"]
+    for j, mp in enumerate(ve.y):
+        for i, rpm in enumerate(ve.x):
+            v = s.plant_ve(float(rpm), float(mp))
+            assert 0.30 < v < 1.45, (seed, rpm, mp, v)     # a plausible engine
+            ve.values[j, i] = v
+    assert course.LABS_BY_KEY["ve"].run(t, s).passed, (seed, "cannot be solved")
+
+    mbt = t.tables["mbt"]
+    for j, mp in enumerate(mbt.y):
+        for i, rpm in enumerate(mbt.x):
+            d = s.plant_mbt(float(rpm), float(mp))
+            assert 0.0 < d < 45.0, (seed, rpm, mp, d)
+            mbt.values[j, i] = d
+    assert course.LABS_BY_KEY["mbt"].run(t, s).passed, (seed, "cannot be solved")

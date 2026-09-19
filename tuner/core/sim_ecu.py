@@ -60,13 +60,49 @@ NM_PER_BAR = 38.0                        # display: element capacity per bar of 
 PHASES = {"idle": 0, "cutting": 1, "holding": 2, "restoring": 3}
 
 
+def plant_seed() -> int:
+    """This installation's engine, minted once and kept.
+
+    Not a constant: with one shared plant, the first person to solve a lab
+    has solved it for everybody, and "here is your engine" is a lie. Not
+    per-session either, for the reason in __init__.
+    """
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME, ORG_NAME
+    st = QSettings(ORG_NAME, APP_NAME)
+    v = st.value("plant_seed")
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        seed = int(np.random.default_rng().integers(1, 2 ** 31 - 1))
+        st.setValue("plant_seed", seed)
+        return seed
+
+
+def new_plant_seed() -> int:
+    """Mint a different engine. The caller is responsible for warning that
+    any lab in progress is now against a different plant."""
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME, ORG_NAME
+    seed = int(np.random.default_rng().integers(1, 2 ** 31 - 1))
+    QSettings(ORG_NAME, APP_NAME).setValue("plant_seed", seed)
+    return seed
+
+
 class SimulatedECU(ECUConnection):
     name = "Simulator"
 
     writable = True
 
-    def __init__(self, tune):
+    def __init__(self, tune, seed=None):
         super().__init__()
+        # Which engine this is. Remembered across runs, because closing the
+        # application in the middle of Lab 1 and coming back to a different
+        # engine would throw the work away.
+        self.seed = plant_seed() if seed is None else int(seed)
+        self.plant = self._make_plant(self.seed)
         # The ECU holds its OWN image of the tune. The editor's copy reaches
         # it only through write_cell/write_table, exactly as it would over a
         # wire -- so an unsent edit cannot change how the engine runs.
@@ -241,15 +277,39 @@ class SimulatedECU(ECUConnection):
     # tune's own VE, MBT and knock tables are only the current guess. If the
     # plant read the tune, every table would confirm itself and nothing
     # could be tuned.
-    @staticmethod
-    def plant_ve(rpm: float, map_kpa: float) -> float:
-        err = (1.0 + 0.085 * math.sin(rpm / 1700.0)
-               - 0.060 * max(map_kpa - 120.0, 0.0) / 120.0)
+    #
+    # Their coefficients come from the seed, so two installations calibrate
+    # two different engines and a solved tune is worth nothing to anybody
+    # else. The ranges are deliberately narrow: every seed has to produce an
+    # engine that is plausible and tunable, not merely different. See
+    # test_every_seed_is_a_tunable_engine.
+    def _make_plant(self, seed: int) -> dict:
+        r = np.random.default_rng(int(seed) & 0xFFFFFFFF)
+        u = r.uniform
+        return {
+            # cylinder filling: how strong the resonance hump is, where it
+            # sits, how much boost hurts filling, and overall breathing
+            "ve_amp": u(0.060, 0.110), "ve_period": u(1400.0, 2100.0),
+            "ve_boost_fade": u(0.040, 0.080), "ve_scale": u(0.97, 1.03),
+            # where peak torque timing really is
+            "mbt_amp": u(1.8, 3.2), "mbt_period": u(2000.0, 2700.0),
+            "mbt_offset": u(-2.0, 0.0),
+            # how much advance it will take before it rattles
+            "kn_base": u(24.0, 28.0), "kn_load_slope": u(0.22, 0.30),
+            "kn_rpm_gain": u(0.0012, 0.0020), "kn_amp": u(1.5, 2.5),
+            "kn_period": u(1700.0, 2100.0),
+        }
+
+    def plant_ve(self, rpm: float, map_kpa: float) -> float:
+        p = self.plant
+        err = (p["ve_scale"] + p["ve_amp"] * math.sin(rpm / p["ve_period"])
+               - p["ve_boost_fade"] * max(map_kpa - 120.0, 0.0) / 120.0)
         return max(float(truth_ve(rpm, map_kpa)) * err, 0.05)
 
-    @staticmethod
-    def plant_mbt(rpm: float, map_kpa: float) -> float:
-        return float(truth_mbt(rpm, map_kpa)) + 2.5 * math.cos(rpm / 2300.0) - 1.0
+    def plant_mbt(self, rpm: float, map_kpa: float) -> float:
+        p = self.plant
+        return (float(truth_mbt(rpm, map_kpa))
+                + p["mbt_amp"] * math.cos(rpm / p["mbt_period"]) + p["mbt_offset"])
 
     @staticmethod
     def plant_spark_efficiency(delta_from_mbt: float) -> float:
@@ -274,11 +334,11 @@ class SimulatedECU(ECUConnection):
         # steeper the other way, and it is knocking by now in any case
         return max(1.0 - 2.2 * SPARK_EFF_K * over ** SPARK_EFF_P, 0.0)
 
-    @staticmethod
-    def plant_knock_limit(rpm: float, map_kpa: float) -> float:
+    def plant_knock_limit(self, rpm: float, map_kpa: float) -> float:
         """Spark advance this engine will tolerate before it rattles."""
-        return (26.0 - 0.26 * max(map_kpa - 90.0, 0.0)
-                + 0.0016 * rpm + 2.0 * math.sin(rpm / 1900.0))
+        p = self.plant
+        return (p["kn_base"] - p["kn_load_slope"] * max(map_kpa - 90.0, 0.0)
+                + p["kn_rpm_gain"] * rpm + p["kn_amp"] * math.sin(rpm / p["kn_period"]))
 
     def _fuel(self, air_g: float, lam_target: float, rpm: float,
               rail_kpa: float, cylinder_kpa: float):

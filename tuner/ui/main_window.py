@@ -674,9 +674,13 @@ class MainWindow(QMainWindow):
     def about(self):
         """Banner over text. QMessageBox puts its pixmap beside the text and
         squeezes the words into a ribbon, so the box is built by hand."""
-        text = (f"<b>{APP_NAME}</b> {APP_VERSION}<br>Tuner application for a "
-                f"torque-structured engine controller.<br><br>Build: Phase 3 — "
-                f"simulated engine and 8HP, live powertrain view.")
+        # The seed is shown because it is the answer to "why did my numbers
+        # not match yours": two installations calibrate two engines.
+        text = (f"<b>{APP_NAME}</b> {APP_VERSION}<br>Learn engine calibration "
+                f"against a simulated engine.<br><br>"
+                f"Engine seed: <b>{self.sim.seed}</b><br>"
+                f"<span style='color:#6A6A6A'>Your engine is yours. A tune "
+                f"solved on another seed will not pass here.</span>")
         splash = QPixmap(str(asset("splash.png")))
         if splash.isNull():
             QMessageBox.about(self, f"About {APP_NAME}", text)
