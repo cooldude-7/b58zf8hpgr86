@@ -273,6 +273,40 @@ keyboard reference, installer.
 burn to hardware, VE autotune from a datalog inside the app (the maths already
 exists in `tqmodel.ve`).
 
+### Sim racing hardware as the driver
+
+Wanted, not scheduled. Today the simulator is driven by a virtual pedal
+dragged with the mouse, which is fine for holding a steady cell and hopeless
+for anything that depends on how the pedal moves. A set of sim racing pedals
+and an H-pattern or sequential shifter on the USB port would fix that.
+
+What it buys, in order of how much it matters:
+
+- **Transients become tunable.** Tip-in is where the manifold filling model
+  earns its keep and where a steady-state VE table lies (see
+  `air_mass`'s docstring, and `dynamics.py`). You cannot provoke a real
+  tip-in with a mouse. With a throttle pedal you can stab it, and see the
+  lag.
+- **Load points get reached honestly.** Driving to a cell, rather than
+  dragging a slider to it, is the difference between calibrating and
+  cell-poking. It is also how the labs would be marked if the plant ever
+  gets a road load.
+- **The shift coordinator gets a driver.** Lab 5 exercises a shift from a
+  button. With a real shifter, the torque cut is something a person feels
+  land, badly or well, which is the entire point of shift quality.
+- **It makes the product demonstrable.** Someone pressing a real pedal and
+  watching the cursor walk across the VE table is the clearest thirty
+  seconds of video this application has in it.
+
+Shape of the work: a HID axis reader (`pygame`, `inputs` or raw
+`hidapi` — all read any DirectInput device without vendor drivers), an axis
+calibration and dead-zone page in settings, a mapping from axis to
+`sim.pedal`, and a shifter's buttons mapped to gear requests on the
+coordinator. The simulator already steps on a timer with a pedal input, so
+this is a new input source rather than a change to the plant. Clutch and
+brake axes only become meaningful once the plant has a road load and a
+launch to model.
+
 ## Risks, honestly
 
 - **Qt has a learning curve.** The plan is that it gets built for you and you
