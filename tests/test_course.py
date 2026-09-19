@@ -348,3 +348,60 @@ def test_every_seed_is_a_tunable_engine(qapp, seed):
             assert 0.0 < d < 45.0, (seed, rpm, mp, d)
             mbt.values[j, i] = d
     assert course.LABS_BY_KEY["mbt"].run(t, s).passed, (seed, "cannot be solved")
+
+
+# ---- the marker's answer reaches the table ------------------------------
+def test_findings_carry_a_signed_comparable_error(student):
+    """Every lab signs its error the same way -- positive means the cell
+    is too high -- or the table cannot draw a direction."""
+    t, s = student
+    ve = t.tables["ve"]
+    ve.values[:] = ve.values * 1.20                  # 20% too much airflow
+    r = course.LABS_BY_KEY["ve"].run(t, s)
+    assert not r.passed
+    assert all(f.error > 0 for f in r.findings), "too high must read positive"
+    assert all(f.tol > 0 for f in r.findings)
+
+    ve.values[:] = ve.values / 1.44                  # now well under
+    r = course.LABS_BY_KEY["ve"].run(t, s)
+    assert all(f.error < 0 for f in r.findings), "too low must read negative"
+
+
+def test_commanding_past_the_knock_limit_is_flagged_unsafe(student):
+    """Too much advance is a different class of wrong from too little, and
+    the table shows it differently."""
+    t, s = student
+    knock = t.tables["knock"]
+    for j, mp in enumerate(knock.y):
+        for i, rpm in enumerate(knock.x):
+            knock.values[j, i] = s.plant_knock_limit(float(rpm), float(mp)) + 6.0
+    r = course.LABS_BY_KEY["knock"].run(t, s)
+    assert not r.passed
+    assert any(f.unsafe for f in r.findings)
+    assert all(f.error > 0 for f in r.findings if f.unsafe)
+
+
+def test_marking_puts_the_findings_on_the_table(qapp):
+    """The point of the whole change: the marker's answer belongs on the
+    grid the student is looking at, not only in a list beside it."""
+    from tuner.ui.main_window import MainWindow
+
+    win = MainWindow(course.student_tune(), persist_layout=False)
+    win.open_item("course", "course", "Labs and progress")
+    win.editors["course"].check_all()
+
+    ed = win.editors["ve"]
+    assert ed.findings, "a failing lab must mark the table"
+    for (j, i), (error, sev, unsafe) in ed.findings.items():
+        assert 0 <= j < ed.table.n_y and 0 <= i < ed.table.n_x
+        assert error != 0.0 and sev > 0.0
+
+    # solving it clears them, so the table stops showing finished work
+    ve = win.tune.tables["ve"]
+    for j, mp in enumerate(ve.y):
+        for i, rpm in enumerate(ve.x):
+            ve.values[j, i] = win.sim.plant_ve(float(rpm), float(mp))
+    win.editors["course"].check_all()
+    assert not ed.findings
+    win.tune.mark_saved()      # or close() sits on the unsaved-work prompt
+    win.close()

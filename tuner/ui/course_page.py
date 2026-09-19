@@ -18,6 +18,7 @@ FAIL_MARK = "•"          # bullet
 
 class CoursePage(QWidget):
     load_student_tune = Signal()
+    marked = Signal(str, object)        # lab key, Result -- for the tables
 
     def __init__(self, get_tune, get_plant, parent=None):
         super().__init__(parent)
@@ -160,4 +161,7 @@ class CoursePage(QWidget):
         self._results[lab.key] = r
         self._remember(lab.key, r.passed)
         self._refresh_marks()
+        # The findings are more use on the table than in this list, so
+        # anyone holding that table gets told.
+        self.marked.emit(lab.key, r)
         return r

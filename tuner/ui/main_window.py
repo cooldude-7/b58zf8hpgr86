@@ -318,6 +318,7 @@ class MainWindow(QMainWindow):
             from .course_page import CoursePage
             w = CoursePage(lambda: self.tune, lambda: self.sim)
             w.load_student_tune.connect(self._load_course_tune)
+            w.marked.connect(self._on_lab_marked)
         elif kind == "settings":
             w = SettingsPage(key, self.tune.engine)
             w.changed.connect(self._engine_changed)
@@ -367,6 +368,28 @@ class MainWindow(QMainWindow):
         else:
             for d in getattr(self, "_docks_before", []): d.show()
         if "mimic" in self.editors: self.editors["mimic"].b_max.setChecked(on)
+
+    # Labs whose findings belong on a table the student can edit. The shift
+    # and direct-injection labs are marked against behaviour rather than a
+    # single surface, so they have nowhere to point.
+    LAB_TABLES = {"ve": "ve", "mbt": "mbt", "knock": "knock", "lambda": "lambda"}
+
+    def _on_lab_marked(self, lab_key: str, result):
+        """Put the marker's findings on the table they are about, opening
+        it if it is not already up. Passing clears them, so a table stops
+        showing work that is done."""
+        table_key = self.LAB_TABLES.get(lab_key)
+        if table_key is None:
+            return
+        ed = self.editors.get(table_key)
+        if ed is None:
+            if result.passed:
+                return                  # nothing to show: do not steal the tab
+            self.open_item("table", table_key, table_key.upper())
+            ed = self.editors.get(table_key)
+            if ed is None:
+                return
+        ed.clear_findings() if result.passed else ed.set_findings(result.findings)
 
     def open_key(self, key: str):
         for _group, children in TREE:

@@ -22,10 +22,24 @@ import numpy as np
 
 @dataclass
 class Finding:
-    """One thing that is still wrong, in terms the student can act on."""
+    """One thing that is still wrong, in terms the student can act on.
+
+    `error` carries the same meaning in every lab: **how wrong the number
+    in the table is, in the table's own units, signed so that positive
+    means the cell is too high and wants lowering.** That is what lets the
+    editor mark a cell with a direction rather than a paragraph.
+
+    `tol` is the threshold this point exceeded, so severity is
+    `abs(error) / tol`. `unsafe` marks a finding that is not merely
+    inaccurate -- commanding more advance than the engine will take is a
+    different class of wrong from leaving torque on the table.
+    """
     rpm: float
     load: float          # kPa, or whatever the table's y axis is
     detail: str
+    error: float = 0.0
+    tol: float = 0.0
+    unsafe: bool = False
 
     def __str__(self):
         return f"{self.rpm:>5.0f} rpm, {self.load:>4.0f} kPa: {self.detail}"
@@ -90,8 +104,11 @@ def grade_ve(tune, plant, tol=0.03, points=None):
         err = true / est - 1.0
         if abs(err) > tol:
             way = "lean" if err > 0 else "rich"
+            # err > 0 means the table reads LOW against the truth, so the
+            # cell wants raising: the signed error is the other way round
             bad.append(Finding(rpm, mp,
-                               f"lambda would read {abs(err) * 100:.1f}% {way}"))
+                               f"lambda would read {abs(err) * 100:.1f}% {way}",
+                               error=est - true, tol=tol * est))
     ok = not bad
     return Result(ok,
                   "Fuelling is within specification across the map." if ok else
@@ -120,7 +137,8 @@ def grade_mbt(tune, plant, tol=2.0, points=None):
         if abs(err) > tol:
             way = "advanced of" if err > 0 else "retarded from"
             bad.append(Finding(rpm, mp,
-                               f"{abs(err):.1f} deg {way} peak torque"))
+                               f"{abs(err):.1f} deg {way} peak torque",
+                               error=err, tol=tol))
     ok = not bad and judged > 0
     return Result(ok,
                   f"Peak torque timing is within {tol:.0f} degrees at all "
@@ -147,11 +165,13 @@ def grade_knock(tune, plant, margin=3.0, waste=5.0, points=None):
         if over > 0.0:
             unsafe += 1
             bad.append(Finding(rpm, mp,
-                               f"{over:.1f} deg PAST the knock limit"))
+                               f"{over:.1f} deg PAST the knock limit",
+                               error=over, tol=margin, unsafe=True))
         elif over < -(margin + waste):
             bad.append(Finding(rpm, mp,
                                f"{-over:.1f} deg below the limit: "
-                               f"torque left on the table"))
+                               f"torque left on the table",
+                               error=over, tol=margin + waste))
     ok = not bad
     if unsafe:
         summary = (f"UNSAFE: {unsafe} points command more advance than the "

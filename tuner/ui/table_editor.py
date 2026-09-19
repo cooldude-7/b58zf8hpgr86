@@ -166,6 +166,28 @@ class HeatDelegate(QStyledItemDelegate):
                                           QPoint(r.right(), r.top() + 7)]))
             painter.restore()
 
+        # What the marker said, on the cell rather than in a list: a wedge
+        # pointing the way the number has to move, sized by how far out it
+        # is. Drawn bottom-left, where the dirty markers are not.
+        mark = self.editor.findings.get((j, i))
+        if mark is not None:
+            error, sev, unsafe = mark
+            painter.save()
+            painter.setPen(Qt.NoPen)
+            if unsafe:
+                painter.setBrush(QColor("#C00000"))
+            else:
+                painter.setBrush(QColor(40, 70, 190, min(90 + int(sev * 110), 235)))
+            n = min(5 + int(sev * 4), 11)
+            x0, y0 = r.left() + 2, r.bottom() - 2
+            if error > 0:       # too high: bring it down
+                painter.drawPolygon(QPolygon([QPoint(x0, y0 - n), QPoint(x0 + n, y0 - n),
+                                              QPoint(x0 + n // 2, y0)]))
+            else:               # too low: take it up
+                painter.drawPolygon(QPolygon([QPoint(x0 + n // 2, y0 - n),
+                                              QPoint(x0, y0), QPoint(x0 + n, y0)]))
+            painter.restore()
+
         cur = self.editor.cursor
         if cur is not None:
             cj, ci, fy, fx = cur
@@ -269,6 +291,7 @@ class TableEditor(QWidget):
         self.table = table
         self.cursor = None
         self.cursor_xy = None
+        self.findings = {}   # (j, i) -> (signed error, severity, unsafe)
         self.undo_stack, self.redo_stack = [], []
 
         self.model = TableModel(table, boost_psi)
@@ -334,6 +357,34 @@ class TableEditor(QWidget):
         self.changed.emit(); self.surface.update()
 
     # ---- live cursor ----------------------------------------------------
+    def set_findings(self, findings):
+        """Where the marker says this table is still wrong.
+
+        The marker samples between breakpoints on purpose, so a finding
+        does not land on a cell. It is attributed to the nearest corner --
+        the cell a student would actually edit to move that point -- and
+        several findings can land on one cell, in which case the worst of
+        them wins, because that is the one still failing.
+        """
+        marks = {}
+        for f in findings or ():
+            cell = self.table.cell_of(float(f.rpm), float(f.load))
+            if cell is None:
+                continue
+            cj, ci, fy, fx = cell
+            j = min(cj + (1 if fy >= 0.5 else 0), self.table.n_y - 1)
+            i = min(ci + (1 if fx >= 0.5 else 0), self.table.n_x - 1)
+            sev = abs(f.error) / f.tol if f.tol else 1.0
+            prev = marks.get((j, i))
+            if prev is None or (f.unsafe, sev) > (prev[2], abs(prev[1])):
+                marks[(j, i)] = (f.error, sev, f.unsafe)
+        self.findings = marks
+        self.view.viewport().update()
+
+    def clear_findings(self):
+        self.findings = {}
+        self.view.viewport().update()
+
     def set_cursor(self, xv: float, yv: float):
         new = self.table.cell_of(xv, yv)
         old = self.cursor
