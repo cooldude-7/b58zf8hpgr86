@@ -31,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Cross compiler for the real target
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
       - name: Build and test the firmware on the host
         run: |
           cmake -S fw -B build/fw -DCMAKE_BUILD_TYPE=Release

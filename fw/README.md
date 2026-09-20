@@ -4,8 +4,11 @@ C that runs the engine. It is built two ways from the same sources:
 
 - **host**, with `hal/hal_host.c`, so the whole control path can be
   compiled and tested on a PC. This is what CI runs.
-- **target**, with `hal/hal_stm32h7.c`, which is not written yet and
-  fails the build loudly if you try.
+- **target**, with `hal/hal_stm32h7.c`. CI cross-compiles this for
+  Cortex-M7. It cannot be *linked* — there are no vectors, no linker
+  script, no startup code and no clock tree, and those arrive with a
+  board — so "it builds" means the code is type-correct for the real
+  part, not that anything has run on silicon.
 
 ```
 cmake -S fw -B build/fw && cmake --build build/fw && ctest --test-dir build/fw
@@ -20,6 +23,8 @@ cmake -S fw -B build/fw && cmake --build build/fw && ctest --test-dir build/fw
 | `model.c` | The torque model, ported from `tqmodel`. Checked against `tests/data/golden.txt`, which the Python generates. |
 | `fuel.c` | Charge mass to pulse width, and the high pressure pump loop. |
 | `monitor.c` | Level 2 torque monitor, ported from `tuner/core/monitor.py`. |
+| `vanos.c` | Cam phaser control. An oil valve commands cam *velocity*, so the holding duty is an integrator, not a constant. |
+| `hal/oc_core.c` | Output-compare scheduling as logic rather than register writes, so the part that decides when a coil stops charging is testable on a PC. |
 | `ecu.c` | Task structure: crank ISR, 1 ms, 10 ms, 100 ms. |
 
 ## What is deliberately not here
@@ -27,6 +32,16 @@ cmake -S fw -B build/fw && cmake --build build/fw && ctest --test-dir build/fw
 No interrupt vectors, no linker script, no startup code, no clock tree.
 Those arrive with the board, and inventing them without one produces
 files that look finished and are wrong.
+
+## Cross-checking against the real target
+
+`fw/tools/crosscheck.sh` builds everything for Cortex-M7 and then greps
+the objects for `__aeabi_d*`. That second half is the interesting one: by
+building against an FPU with no double-precision support, any stray
+`double` becomes a *library call* the compiler must emit — so the rule
+below stops being a convention people remember and becomes something a
+script fails on. It runs in `ctest` and in CI, and skips cleanly if no
+cross compiler is installed.
 
 ## The rules this code keeps
 

@@ -29,7 +29,7 @@ add_library(tqcore STATIC
 target_include_directories(tqcore PUBLIC include)
 target_link_libraries(tqcore PUBLIC m)
 
-add_library(tqhal_host STATIC hal/hal_host.c)
+add_library(tqhal_host STATIC hal/hal_host.c hal/oc_core.c)
 target_include_directories(tqhal_host PUBLIC include hal)
 target_link_libraries(tqhal_host PUBLIC tqcore)
 
@@ -40,11 +40,19 @@ target_link_libraries(ecu_host PRIVATE tqcore)
 
 enable_testing()
 
+# The target build cannot be linked here -- no vectors, no linker script,
+# no startup code, those arrive with a board -- but it can be compiled,
+# and compiling it is what catches the STM32H7 HAL rotting silently while
+# only the host build is exercised. The same pass proves no double
+# precision crept into the control path.
+add_test(NAME crosscheck
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tools/crosscheck.sh)
+
 set(TQ_TESTS test_decoder test_sched test_model test_fuel test_monitor test_ecu
-             test_proto test_di test_vanos)
+             test_proto test_di test_vanos test_oc)
 foreach(t ${TQ_TESTS})
     add_executable(${t} tests/${t}.c)
-    target_include_directories(${t} PRIVATE tests)
+    target_include_directories(${t} PRIVATE tests hal)
     target_link_libraries(${t} PRIVATE tqcore tqhal_host)
     # the model test reads the golden file produced from the Python model
     add_test(NAME ${t}
