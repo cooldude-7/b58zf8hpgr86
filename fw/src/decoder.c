@@ -21,6 +21,7 @@ dec_config_t decoder_config_b48(void)
     c.gap_ratio = 1.6f;
     c.noise_ratio = 0.45f;
     c.gap_to_tdc_deg = 114.0f;
+    c.measured = false;          /* every number below is still a guess */
 
     /* Cam patterns. These crank angles are the rusEFI project's rising
      * edges measured from a real BMW N52 capture, doubled from cam into
