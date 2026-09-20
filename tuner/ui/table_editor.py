@@ -166,6 +166,20 @@ class HeatDelegate(QStyledItemDelegate):
                                           QPoint(r.right(), r.top() + 7)]))
             painter.restore()
 
+        # Three corners, three facts. Top right is what the ECU has seen,
+        # bottom left is what the marker said, and bottom right is whether
+        # the engine has ever run here -- which is what tells you whether
+        # the number in this cell was measured or guessed.
+        seen = self.editor.coverage.get((j, i))
+        if seen:
+            painter.save()
+            painter.setPen(Qt.NoPen)
+            f = min(seen / TableEditor.COVER_FULL, 1.0)
+            painter.setBrush(QColor(60, 60, 60, 45 + int(f * 125)))
+            d = 3 + int(f * 3)
+            painter.drawEllipse(r.right() - d - 2, r.bottom() - d - 2, d, d)
+            painter.restore()
+
         # What the marker said, on the cell rather than in a list: a wedge
         # pointing the way the number has to move, sized by how far out it
         # is. Drawn bottom-left, where the dirty markers are not.
@@ -292,6 +306,7 @@ class TableEditor(QWidget):
         self.cursor = None
         self.cursor_xy = None
         self.findings = {}   # (j, i) -> (signed error, severity, unsafe)
+        self.coverage = {}   # (j, i) -> samples the engine has spent there
         self.undo_stack, self.redo_stack = [], []
 
         self.model = TableModel(table, boost_psi)
@@ -385,10 +400,28 @@ class TableEditor(QWidget):
         self.findings = {}
         self.view.viewport().update()
 
+    def clear_coverage(self):
+        """Forget where the engine has been. Between pulls, or when the
+        point is to see what THIS pull touched."""
+        self.coverage = {}
+        self.view.viewport().update()
+
+    # Channels publish at 25 Hz, so this many samples is a little under half
+    # a second in one cell -- about what a pull spends crossing one.
+    COVER_FULL = 10
+
     def set_cursor(self, xv: float, yv: float):
         new = self.table.cell_of(xv, yv)
         old = self.cursor
         self.cursor, self.cursor_xy = new, (xv, yv)
+        if new is not None:
+            # Where the engine has actually been. Not what it found there:
+            # coverage says which cells you have data for, and the reading
+            # and the decision stay yours.
+            cj, ci, fy, fx = new
+            j = min(cj + (1 if fy >= 0.5 else 0), self.table.n_y - 1)
+            i = min(ci + (1 if fx >= 0.5 else 0), self.table.n_x - 1)
+            self.coverage[(j, i)] = self.coverage.get((j, i), 0) + 1
         for c in (old, new):
             if c is None: continue
             cj, ci, *_ = c

@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
         self.a_intro.setToolTip("Show the animated VE surface while the application loads")
         self.a_intro.triggered.connect(set_intro_enabled)
         self.a_intro_replay = A("&Replay start-up screen", self, triggered=self.replay_intro)
+        self.a_clear_cover = A("Clear &cell coverage", self, triggered=self.clear_coverage)
 
     def _build_menus(self):
         mb = self.menuBar()
@@ -266,6 +267,8 @@ class MainWindow(QMainWindow):
         self.m_view.addSeparator()
         self.m_view.addAction(self.a_intro)
         self.m_view.addAction(self.a_intro_replay)
+        self.m_view.addSeparator()
+        self.m_view.addAction(self.a_clear_cover)
 
     def _build_central(self):
         self.tabs = QTabWidget()
@@ -390,6 +393,14 @@ class MainWindow(QMainWindow):
             if ed is None:
                 return
         ed.clear_findings() if result.passed else ed.set_findings(result.findings)
+
+    def clear_coverage(self):
+        """Forget where the engine has been, on every table at once. What
+        one pull touched is the useful question, and it needs a clean
+        sheet to answer."""
+        for w in self.editors.values():
+            if isinstance(w, TableEditor):
+                w.clear_coverage()
 
     def open_key(self, key: str):
         for _group, children in TREE:

@@ -330,3 +330,50 @@ def test_no_placeholder_pages_remain(win):
     import tuner.ui.settings_page as sp
 
     assert not hasattr(sp, "PlaceholderPage")
+
+
+def test_driving_records_which_cells_were_visited(win):
+    """Coverage answers "do I have data here", which is what makes a
+    correction honest: you change the cells your pull actually touched."""
+    ed = win.editors["ve"]
+    ed.clear_coverage()
+    assert not ed.coverage
+
+    for k in range(400):                      # a pull, wound on from idle
+        win.sim.pedal = min(0.15 + k / 250.0, 1.0)
+        win.sim._step()
+        if k % 2 == 0:
+            win._on_channels(win.sim.channels())
+
+    assert len(ed.coverage) > 3, "a pull should cross several cells"
+    for (j, i), n in ed.coverage.items():
+        assert 0 <= j < ed.table.n_y and 0 <= i < ed.table.n_x
+        assert n > 0
+    # the whole map is never covered by one pull, which is the point
+    assert len(ed.coverage) < ed.table.n_y * ed.table.n_x
+
+
+def test_coverage_can_be_cleared_on_every_table_at_once(win):
+    """What THIS pull touched is the useful question, so it needs a clean
+    sheet between pulls."""
+    win.open_item("table", "mbt", "MBT Spark")
+    for k in range(60):
+        win.sim.pedal = 0.5
+        win.sim._step()
+        win._on_channels(win.sim.channels())
+    assert win.editors["ve"].coverage and win.editors["mbt"].coverage
+
+    win.clear_coverage()
+    assert not win.editors["ve"].coverage
+    assert not win.editors["mbt"].coverage
+
+
+def test_coverage_and_findings_are_different_facts(win):
+    """Coverage says where the engine has been. Findings say what is
+    wrong. A cell can have either, both or neither, and they are drawn in
+    different corners so they never have to compete."""
+    ed = win.editors["ve"]
+    assert ed.coverage is not ed.findings
+    ed.clear_coverage()
+    ed.set_findings([])
+    assert not ed.coverage and not ed.findings
