@@ -20,6 +20,7 @@ static void *g_cam_ctx[HAL_CAP_COUNT];
 static u32 g_overruns[HAL_CAP_COUNT];
 static u16 g_adc[HAL_ADC_COUNT];
 static f32 g_throttle;
+static f32 g_ocv[HAL_OCV_COUNT];
 static bool g_throttle_enabled;
 static u32 g_watchdog_kicks;
 static bool g_watchdog_reset;
@@ -56,6 +57,7 @@ void hal_host_reset(void)
     g_watchdog_kicks = 0;
     g_watchdog_reset = false;
     memset(g_overruns, 0, sizeof(g_overruns));
+    memset(g_ocv, 0, sizeof(g_ocv));
 }
 
 static void record(hal_out_t ch, bool rising, tq_time_t t)
@@ -257,6 +259,16 @@ void hal_out_cancel(hal_out_t ch)
 bool hal_out_is_active(hal_out_t ch)
 {
     return ch < HAL_OUT_COUNT && g_out[ch].active;
+}
+
+void hal_ocv_pwm(hal_ocv_t ch, f32 duty)
+{
+    if (ch < HAL_OCV_COUNT) g_ocv[ch] = duty;
+}
+
+f32 hal_host_ocv(hal_ocv_t ch)
+{
+    return ch < HAL_OCV_COUNT ? g_ocv[ch] : 0.0f;
 }
 
 void hal_throttle_pwm(f32 duty) { g_throttle = tq_clampf(duty, -1.0f, 1.0f); }

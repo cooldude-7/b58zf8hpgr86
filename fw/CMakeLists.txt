@@ -21,6 +21,7 @@ add_library(tqcore STATIC
     src/model.c
     src/fuel.c
     src/monitor.c
+    src/vanos.c
     src/ecu.c
     src/cal.c
     src/proto.c
@@ -40,7 +41,7 @@ target_link_libraries(ecu_host PRIVATE tqcore)
 enable_testing()
 
 set(TQ_TESTS test_decoder test_sched test_model test_fuel test_monitor test_ecu
-             test_proto test_di)
+             test_proto test_di test_vanos)
 foreach(t ${TQ_TESTS})
     add_executable(${t} tests/${t}.c)
     target_include_directories(${t} PRIVATE tests)

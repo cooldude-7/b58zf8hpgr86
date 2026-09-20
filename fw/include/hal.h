@@ -121,6 +121,20 @@ bool hal_inj_configure(hal_out_t ch, const hal_inj_drive_t *d);
  * injectors will not open properly and fuelling is not trustworthy. */
 u16 hal_inj_boost_voltage(void);
 
+/* ---- cam phaser oil control valves ------------------------------------ */
+/* A hydraulic vane phaser is positioned by letting oil into one side of
+ * the vane or the other, and the valve duty commands the cam's VELOCITY,
+ * not its position. Zero duty is not "hold at zero advance": BMW's
+ * central valve carries a locking pin that blocks the unit when the
+ * actuator is de-energized, so zero duty means "park and lock". That is
+ * what makes shutdown and limp-home passive rather than a manoeuvre. */
+typedef enum {
+    HAL_OCV_CAM_1 = 0, HAL_OCV_CAM_2, HAL_OCV_CAM_3, HAL_OCV_CAM_4,
+    HAL_OCV_COUNT
+} hal_ocv_t;
+
+void hal_ocv_pwm(hal_ocv_t ch, f32 duty);   /* 0..1; 0 parks on the pin */
+
 /* ---- throttle -------------------------------------------------------- */
 void hal_throttle_pwm(f32 duty);       /* -1..1, sign is direction */
 void hal_throttle_disable(void);       /* H-bridge off: return spring wins */
@@ -131,6 +145,7 @@ typedef enum {
     HAL_ADC_TPS_A, HAL_ADC_TPS_B,
     HAL_ADC_MAP, HAL_ADC_IAT, HAL_ADC_CLT,
     HAL_ADC_LAMBDA, HAL_ADC_RAIL_PRESSURE, HAL_ADC_BATTERY,
+    HAL_ADC_OIL_PRESSURE,
     HAL_ADC_KNOCK,
     HAL_ADC_COUNT
 } hal_adc_t;

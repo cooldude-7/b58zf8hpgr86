@@ -23,6 +23,7 @@
 #include "model.h"
 #include "monitor.h"
 #include "sched.h"
+#include "vanos.h"
 
 typedef enum {
     ECU_OFF = 0,
@@ -35,6 +36,7 @@ typedef enum {
 typedef struct {
     /* measured */
     f32 rpm, map_kpa, iat_k, clt_k, battery_v, rail_kpa, lambda_meas;
+    f32 oil_kpa;
     f32 pedal_a, pedal_b, tps_a, tps_b;
     /* commanded */
     f32 tps_cmd, spark_deg, mbt_deg, knock_limit_deg, lambda_target;
@@ -46,6 +48,14 @@ typedef struct {
     f32 torque_request, torque_estimate, torque_authority;
     f32 air_g, ve;
     u32 pw_us;
+    /* cam phasing. cam_adv is the MEASURED advance in crank degrees;
+     * cam_adv_valid says whether it means anything, because a phaser
+     * loop must not integrate against a frozen number. vanos_fault is
+     * reported, never acted on here: a cam that cannot find its target
+     * is not a reason to stop fuelling the engine. */
+    f32 cam_adv[VAN_N_CAM];
+    bool cam_adv_valid[VAN_N_CAM];
+    u8 vanos_fault[VAN_N_CAM];
     /* state */
     ecu_state_t state;
     u32 fast_cycles, slow_cycles;
@@ -55,6 +65,8 @@ typedef struct {
     decoder_t dec;
     sched_t sch;
     tq_monitor_t mon;
+    vanos_t van;
+    f32 cam_target[VAN_N_CAM];   /* commanded advance; a cal table later */
     tq_hpfp_t hpfp;
     tq_hpfp_sched_t hpfp_sched;
     hal_inj_drive_t inj_drive;
