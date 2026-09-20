@@ -103,14 +103,23 @@ def test_spark_returns_to_base_after_the_shift(sim):
     assert sim.channels()["cut_deg"] < 1.0
 
 
-def test_chasing_the_cut_with_air_overshoots_afterwards(sim, tune):
+def test_chasing_the_cut_with_air_overshoots_afterwards(tune):
     """The failure the exercise exists to teach. Holding the air request
     keeps the manifold where it was; chasing the cut inflates it, and the
-    torque that lands on the clutch when spark returns is the overshoot."""
+    torque that lands on the clutch when spark returns is the overshoot.
+
+    Measured across several engines rather than one, because it is a
+    population effect and not a law. On a randomly generated plant it
+    holds roughly five times in six; the sixth engine genuinely does not
+    overshoot, because how much the manifold can inflate during the cut
+    depends on that engine's VE surface and knock limit. Asserting it on
+    ONE unseeded engine is a test that fails about one run in six, on
+    somebody else's machine, for a reason that looks like nothing.
+    """
     from tuner.core.sim_ecu import SimulatedECU
 
-    def peak_after_shift(chase):
-        s = SimulatedECU(tune)
+    def peak_after_shift(chase, seed):
+        s = SimulatedECU(tune, seed=seed)
         s.connect_ecu()
         s.coord = Reference(chase_air_bug=chase)
         s.coord_state = s.coord.new_controller()
@@ -123,9 +132,20 @@ def test_chasing_the_cut_with_air_overshoots_afterwards(sim, tune):
         s.disconnect_ecu()
         return before, peak
 
-    _, held = peak_after_shift(False)
-    _, chased = peak_after_shift(True)
-    assert chased > held, f"chasing air did not overshoot ({chased:.0f} vs {held:.0f})"
+    seeds = (11, 22, 33, 44, 55, 66, 77)
+    deltas = [peak_after_shift(True, s)[1] - peak_after_shift(False, s)[1]
+              for s in seeds]
+    overshot = sum(1 for d in deltas if d > 0)
+    mean = sum(deltas) / len(deltas)
+
+    assert overshot >= len(seeds) - 2, (
+        f"chasing air overshot on only {overshot} of {len(seeds)} engines: "
+        f"{[round(d, 1) for d in deltas]}"
+    )
+    assert mean > 2.0, (
+        f"mean overshoot {mean:.1f} Nm is too small to be the lesson this "
+        f"lab teaches"
+    )
 
 
 def test_a_coordinator_that_does_nothing_leaves_a_harsh_shift(sim):

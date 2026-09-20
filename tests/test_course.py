@@ -8,6 +8,8 @@ to and confirming the marker agrees.
 import numpy as np
 import pytest
 
+from conftest import TEST_PLANT_SEED
+
 from tuner.core import course
 from tuner.core.sim_ecu import SimulatedECU
 from tuner.core.tune import default_tune
@@ -16,7 +18,7 @@ from tuner.core.tune import default_tune
 @pytest.fixture
 def student(qapp):
     t = course.student_tune()
-    s = SimulatedECU(t)
+    s = SimulatedECU(t, seed=TEST_PLANT_SEED)
     return t, s
 
 

@@ -8,6 +8,8 @@ import math
 
 import pytest
 
+from conftest import TEST_PLANT_SEED
+
 from tuner.core.monitor import (F_OVERBOOST, F_OVERSPEED, F_PEDAL_PLAUSIBILITY,
                                 F_TORQUE_EXCEEDS_PERMISSIBLE, F_TPS_PLAUSIBILITY,
                                 IDLE_ONLY, OK, REDUCED, SHUTDOWN, Monitor)
@@ -315,7 +317,7 @@ def test_an_undersized_pump_droops_the_rail(sim, tune):
 
     weak = tune
     weak.engine["hpfp_capacity_g_s"] = 6.0
-    s = SimulatedECU(weak)
+    s = SimulatedECU(weak, seed=TEST_PLANT_SEED)
     s.connect_ecu()
     s.pedal = 1.0
     for _ in range(900):

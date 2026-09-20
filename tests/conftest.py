@@ -32,10 +32,41 @@ def tune():
     return default_tune()
 
 
+# Every installation gets its own randomly generated engine -- that is the
+# point of plant_seed(), because a shared plant means the first person to
+# solve a lab has solved it for everybody. It is also a trap for tests: an
+# unseeded SimulatedECU picks up whatever engine this machine happens to
+# have, which is stable locally and random on a fresh CI runner. A test
+# then passes deterministically for the author and fails intermittently
+# for everyone else, which is the worst possible shape for a flake.
+#
+# Tests get a fixed engine. Anything that genuinely means to exercise the
+# per-install behaviour asks for it explicitly.
+TEST_PLANT_SEED = 20260920
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_plant(monkeypatch):
+    """Pin the per-installation engine for the whole suite.
+
+    Pinning individual SimulatedECU calls in tests is not enough, because
+    production code makes its own: MainWindow builds one in its
+    constructor with no seed, so any test that opens a window gets this
+    machine's engine. Patching the mint itself is the only place that
+    covers every construction, including the ones inside the app.
+
+    Without this the suite is deterministic for whoever wrote it and
+    random on a fresh runner -- so a flake looks like "CI is broken"
+    rather than like a bug, and gets re-run instead of read.
+    """
+    monkeypatch.setattr("tuner.core.sim_ecu.plant_seed",
+                        lambda: TEST_PLANT_SEED)
+
+
 @pytest.fixture
 def sim(qapp, tune):
     from tuner.core.sim_ecu import SimulatedECU
-    s = SimulatedECU(tune)
+    s = SimulatedECU(tune, seed=TEST_PLANT_SEED)
     s.connect_ecu()
     yield s
     s.disconnect_ecu()
