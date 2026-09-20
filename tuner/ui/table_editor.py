@@ -166,40 +166,36 @@ class HeatDelegate(QStyledItemDelegate):
                                           QPoint(r.right(), r.top() + 7)]))
             painter.restore()
 
-        # Three corners, three facts. Top right is what the ECU has seen,
-        # bottom left is what the marker said, and bottom right is whether
-        # the engine has ever run here -- which is what tells you whether
-        # the number in this cell was measured or guessed.
-        seen = self.editor.coverage.get((j, i))
-        if seen:
+        # Marks on the edges rather than shapes in the cell: the grid is
+        # already carrying a colour per value and a number to read, and a
+        # glyph on top of that is one thing too many. The left edge says
+        # whether there is data here. A rule along the top or the bottom
+        # says which way the number has to move -- the side it sits on IS
+        # the direction, so nothing has to be drawn to point.
+        seen = self.editor.coverage.get((j, i), 0)
+        if seen >= TableEditor.COVER_MIN:
+            f = min(seen / TableEditor.COVER_FULL, 1.0)
             painter.save()
             painter.setPen(Qt.NoPen)
-            f = min(seen / TableEditor.COVER_FULL, 1.0)
-            painter.setBrush(QColor(60, 60, 60, 45 + int(f * 125)))
-            d = 3 + int(f * 3)
-            painter.drawEllipse(r.right() - d - 2, r.bottom() - d - 2, d, d)
+            painter.setBrush(QColor(70, 70, 70, 50 + int(f * 110)))
+            painter.drawRect(r.left() + 1, r.top() + 2, 2, r.height() - 4)
             painter.restore()
 
-        # What the marker said, on the cell rather than in a list: a wedge
-        # pointing the way the number has to move, sized by how far out it
-        # is. Drawn bottom-left, where the dirty markers are not.
         mark = self.editor.findings.get((j, i))
         if mark is not None:
             error, sev, unsafe = mark
             painter.save()
             painter.setPen(Qt.NoPen)
-            if unsafe:
-                painter.setBrush(QColor("#C00000"))
-            else:
-                painter.setBrush(QColor(40, 70, 190, min(90 + int(sev * 110), 235)))
-            n = min(5 + int(sev * 4), 11)
-            x0, y0 = r.left() + 2, r.bottom() - 2
-            if error > 0:       # too high: bring it down
-                painter.drawPolygon(QPolygon([QPoint(x0, y0 - n), QPoint(x0 + n, y0 - n),
-                                              QPoint(x0 + n // 2, y0)]))
-            else:               # too low: take it up
-                painter.drawPolygon(QPolygon([QPoint(x0 + n // 2, y0 - n),
-                                              QPoint(x0, y0), QPoint(x0 + n, y0)]))
+            painter.setBrush(QColor("#B00000") if unsafe else
+                             QColor(30, 60, 175, min(120 + int(sev * 100), 240)))
+            # Flush against the edge, not floating inside it: a rule a few
+            # pixels in reads as an overline on the number rather than as a
+            # mark on the cell, and the rows are too short to have both.
+            h = 2 if sev < 1.5 else 3
+            w = max(int(r.width() * 0.55), 12)
+            x0 = r.left() + (r.width() - w) // 2
+            y0 = (r.bottom() - h) if error > 0 else r.top()
+            painter.drawRect(x0, y0, w, h)
             painter.restore()
 
         cur = self.editor.cursor
@@ -409,6 +405,10 @@ class TableEditor(QWidget):
     # Channels publish at 25 Hz, so this many samples is a little under half
     # a second in one cell -- about what a pull spends crossing one.
     COVER_FULL = 10
+    # Below this, the cursor brushed the cell rather than the engine running
+    # in it. Real tuning software filters its histograms the same way, and
+    # for the same reason: three samples is not a measurement.
+    COVER_MIN = 3
 
     def set_cursor(self, xv: float, yv: float):
         new = self.table.cell_of(xv, yv)
