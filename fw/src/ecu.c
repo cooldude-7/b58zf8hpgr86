@@ -86,9 +86,9 @@ void ecu_schedule_pump(ecu_t *e, tq_time_t now_us)
     }
 }
 
-void ecu_on_cam_edge(ecu_t *e, tq_time_t t)
+void ecu_on_cam_edge(ecu_t *e, u8 cam, tq_time_t t, bool rising)
 {
-    decoder_on_cam_edge(&e->dec, t);
+    decoder_on_cam_edge(&e->dec, cam, t, rising);
 }
 
 static void apply_cuts(ecu_t *e)

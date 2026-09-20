@@ -8,6 +8,7 @@
 #include <math.h>
 
 #include "ecu.h"
+#include "crank_sim.h"
 #include "hal_host.h"
 #include "tq_test.h"
 
@@ -24,8 +25,8 @@ typedef struct {
     f32 fast_accum, slow_accum;
 } rig_t;
 
-static void on_crank(tq_time_t t, void *ctx) { ecu_on_crank_edge(&((rig_t *)ctx)->ecu, t); }
-static void on_cam(tq_time_t t, void *ctx) { ecu_on_cam_edge(&((rig_t *)ctx)->ecu, t); }
+static void on_crank(tq_time_t t, bool rising, void *ctx) { (void)rising; ecu_on_crank_edge(&((rig_t *)ctx)->ecu, t); }
+static void on_cam(tq_time_t t, bool rising, void *ctx) { ecu_on_cam_edge(&((rig_t *)ctx)->ecu, 0u, t, rising); }
 
 static void rig_init(rig_t *r, f32 rpm)
 {
@@ -37,7 +38,7 @@ static void rig_init(rig_t *r, f32 rpm)
     r->rpm = rpm;
     r->fast_accum = r->slow_accum = 0.0f;
     hal_crank_set_callback(on_crank, r);
-    hal_cam_set_callback(on_cam, r);
+    hal_cam_set_callback(HAL_CAP_CAM_1, on_cam, r);
     ecu_signals_t *s = &r->ecu.sig;
     s->ve = 0.90f; s->map_kpa = 95.0f;
     s->mbt_deg = 22.0f; s->knock_limit_deg = 30.0f; s->spark_deg = 20.0f;
@@ -56,10 +57,16 @@ static void step_tooth(rig_t *r)
     r->t += dt;
     f32 before = r->true_angle;
     r->true_angle = tq_wrap_deg(r->true_angle + DPT);
-    f32 c = r->cfg.cam_edge_angle_deg;
-    if ((before < c && r->true_angle >= c)
-        || (before > r->true_angle && (c > before || c <= r->true_angle))) {
-        hal_host_cam_edge(r->t);
+    /* Emit every cam edge the crank just swept past, on both cams. */
+    for (u8 cam = 0; cam < 2u; cam++) {
+        const dec_cam_pattern_t *cp = &r->cfg.cam[cam];
+        cam_sim_hit_t hit[DEC_MAX_CAM_EDGES];
+        u8 nh = cam_sim_crossed(cp, before, r->true_angle, 0.0f,
+                                hit, DEC_MAX_CAM_EDGES);
+        for (u8 k = 0; k < nh; k++) {
+            hal_host_cam_edge_ch((hal_cap_t)(HAL_CAP_CAM_1 + cam), r->t,
+                                 cp->e[hit[k].idx].rising);
+        }
     }
     f32 rel = r->true_angle;
     while (rel >= 360.0f) rel -= 360.0f;

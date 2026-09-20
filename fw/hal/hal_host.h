@@ -18,7 +18,9 @@ extern u32 hal_host_event_count;
 void hal_host_reset(void);
 void hal_host_advance_to(tq_time_t t);
 void hal_host_crank_edge(tq_time_t t);
-void hal_host_cam_edge(tq_time_t t);
+void hal_host_cam_edge(tq_time_t t);            /* cam 1, rising */
+void hal_host_cam_edge_ch(hal_cap_t ch, tq_time_t t, bool rising);
+void hal_host_capture_overrun(hal_cap_t ch);
 void hal_host_set_adc(hal_adc_t ch, u16 counts);
 f32 hal_host_throttle(void);
 bool hal_host_throttle_enabled(void);

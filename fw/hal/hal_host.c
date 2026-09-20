@@ -13,8 +13,11 @@
 #include <string.h>
 
 static tq_time_t g_now;
-static hal_tooth_cb g_crank_cb, g_cam_cb;
-static void *g_crank_ctx, *g_cam_ctx;
+static hal_tooth_cb g_crank_cb;
+static void *g_crank_ctx;
+static hal_tooth_cb g_cam_cb[HAL_CAP_COUNT];
+static void *g_cam_ctx[HAL_CAP_COUNT];
+static u32 g_overruns[HAL_CAP_COUNT];
 static u16 g_adc[HAL_ADC_COUNT];
 static f32 g_throttle;
 static bool g_throttle_enabled;
@@ -52,6 +55,7 @@ void hal_host_reset(void)
     g_throttle_enabled = true;
     g_watchdog_kicks = 0;
     g_watchdog_reset = false;
+    memset(g_overruns, 0, sizeof(g_overruns));
 }
 
 static void record(hal_out_t ch, bool rising, tq_time_t t)
@@ -123,13 +127,26 @@ bool hal_host_watchdog_tripped(void) { return g_watchdog_reset; }
 void hal_host_crank_edge(tq_time_t t)
 {
     hal_host_advance_to(t);
-    if (g_crank_cb) g_crank_cb(t, g_crank_ctx);
+    if (g_crank_cb) g_crank_cb(t, true, g_crank_ctx);
 }
 
+/* The common case in tests: the first cam, a rising edge. */
 void hal_host_cam_edge(tq_time_t t)
 {
+    hal_host_cam_edge_ch(HAL_CAP_CAM_1, t, true);
+}
+
+void hal_host_cam_edge_ch(hal_cap_t ch, tq_time_t t, bool rising)
+{
     hal_host_advance_to(t);
-    if (g_cam_cb) g_cam_cb(t, g_cam_ctx);
+    if (ch < HAL_CAP_COUNT && g_cam_cb[ch]) {
+        g_cam_cb[ch](t, rising, g_cam_ctx[ch]);
+    }
+}
+
+void hal_host_capture_overrun(hal_cap_t ch)
+{
+    if (ch < HAL_CAP_COUNT) g_overruns[ch]++;
 }
 
 /* ---- the HAL interface proper ---------------------------------------- */
@@ -140,9 +157,15 @@ void hal_crank_set_callback(hal_tooth_cb cb, void *ctx)
     g_crank_cb = cb; g_crank_ctx = ctx;
 }
 
-void hal_cam_set_callback(hal_tooth_cb cb, void *ctx)
+void hal_cam_set_callback(hal_cap_t ch, hal_tooth_cb cb, void *ctx)
 {
-    g_cam_cb = cb; g_cam_ctx = ctx;
+    if (ch >= HAL_CAP_COUNT) return;
+    g_cam_cb[ch] = cb; g_cam_ctx[ch] = ctx;
+}
+
+u32 hal_capture_overruns(hal_cap_t ch)
+{
+    return ch < HAL_CAP_COUNT ? g_overruns[ch] : 0u;
 }
 
 bool hal_out_schedule(hal_out_t ch, tq_time_t on_us, tq_time_t off_us)

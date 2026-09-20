@@ -74,7 +74,7 @@ void ecu_init(ecu_t *e);
 
 /* Called from the crank input-capture ISR. Keep it short. */
 void ecu_on_crank_edge(ecu_t *e, tq_time_t t);
-void ecu_on_cam_edge(ecu_t *e, tq_time_t t);
+void ecu_on_cam_edge(ecu_t *e, u8 cam, tq_time_t t, bool rising);
 
 void ecu_schedule_pump(ecu_t *e, tq_time_t now_us);
 void ecu_fast_task(ecu_t *e, f32 dt_s);     /* 1 ms */

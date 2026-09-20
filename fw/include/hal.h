@@ -19,13 +19,46 @@
 tq_time_t hal_now_us(void);
 
 /* ---- crank and cam input capture ------------------------------------- */
+/* The capture channels. A cam edge is useless without knowing which cam
+ * it came from: the intake and exhaust phasers move independently, so an
+ * edge that cannot be attributed is an edge that cannot be turned into a
+ * cam position. docs/hardware.md budgets four cam inputs for a V8 with
+ * four phasers, so the enum is sized for that and the B48 uses two. */
+typedef enum {
+    HAL_CAP_CRANK = 0,
+    HAL_CAP_CAM_1,        /* B48: intake */
+    HAL_CAP_CAM_2,        /* B48: exhaust */
+    HAL_CAP_CAM_3,
+    HAL_CAP_CAM_4,
+    HAL_CAP_COUNT
+} hal_cap_t;
+
+/* How many cam channels follow HAL_CAP_CRANK. */
+#define HAL_CAM_COUNT (HAL_CAP_COUNT - 1)
+
 /* Called from the input-capture ISR on every tooth edge, with the
  * hardware-latched timestamp of that edge. Latched, not read: software
- * timestamping at 7000 rpm loses several degrees to interrupt latency. */
-typedef void (*hal_tooth_cb)(tq_time_t edge_us, void *ctx);
+ * timestamping at 7000 rpm loses several degrees to interrupt latency.
+ *
+ * `rising` is the edge polarity, and it is not decoration. BMW's crank
+ * sensors of this generation encode rotation direction in pulse WIDTH so
+ * the DME can run auto start-stop, which means the mark and space are
+ * deliberately unequal and only one polarity is the true tooth edge.
+ * A decoder that accepts both sees a tooth pattern that does not exist.
+ * The same is true of a cam wheel, where the lobe edges carry the
+ * pattern and the widths carry nothing. */
+typedef void (*hal_tooth_cb)(tq_time_t edge_us, bool rising, void *ctx);
 
 void hal_crank_set_callback(hal_tooth_cb cb, void *ctx);
-void hal_cam_set_callback(hal_tooth_cb cb, void *ctx);
+void hal_cam_set_callback(hal_cap_t ch, hal_tooth_cb cb, void *ctx);
+
+/* Edges the hardware latched but software did not read in time, per
+ * channel. On a timer capture unit this is the overcapture flag: a
+ * second edge arrived before the first was read, so one timestamp is
+ * gone. It is never zero on a broken shield or a noisy VR front end, and
+ * a decoder that is losing sync for no visible reason should be asked
+ * this question first. */
+u32 hal_capture_overruns(hal_cap_t ch);
 
 /* ---- scheduled outputs ----------------------------------------------- */
 /* An output channel driven by a compare unit: the edge happens in

@@ -7,6 +7,7 @@
  */
 #include <math.h>
 
+#include "crank_sim.h"
 #include "decoder.h"
 #include "tq_test.h"
 
@@ -20,7 +21,9 @@ typedef struct {
     f32 true_angle;          /* 0..720 */
     tq_time_t t;
     f32 rpm;
-    f32 cam_angle;
+    f32 cam_adv[2];          /* cam advance, CRANK degrees, per cam */
+    f32 cam_slew[2];         /* crank deg/s the phaser is moving */
+    int drop_cam_edges;      /* swallow this many cam edges, then stop */
     int injected_noise;
 } rig_t;
 
@@ -31,7 +34,11 @@ static void rig_init(rig_t *r, f32 rpm)
     r->true_angle = 0.0f;
     r->t = 1000000u;
     r->rpm = rpm;
-    r->cam_angle = r->cfg.cam_edge_angle_deg;
+    r->cam_adv[0] = 0.0f;
+    r->cam_adv[1] = 0.0f;
+    r->cam_slew[0] = 0.0f;
+    r->cam_slew[1] = 0.0f;
+    r->drop_cam_edges = 0;
     r->injected_noise = 0;
 }
 
@@ -47,12 +54,27 @@ static void step_tooth(rig_t *r, f32 accel_rpm_per_rev)
     f32 before = r->true_angle;
     r->true_angle = tq_wrap_deg(r->true_angle + deg);
 
-    /* cam edge once per 720 */
-    f32 c = r->cam_angle;
-    int crossed = (before < c && r->true_angle >= c)
-                  || (before > r->true_angle && (c > before || c <= r->true_angle));
-    if (crossed) {
-        decoder_on_cam_edge(&r->dec, r->t);
+    /* Every cam edge the crank just swept past, on both cams, with the
+     * pattern displaced by that cam's current advance. */
+    for (u8 cam = 0; cam < 2u; cam++) {
+        const dec_cam_pattern_t *cp = &r->cfg.cam[cam];
+        cam_sim_hit_t hit[DEC_MAX_CAM_EDGES];
+        u8 nh = cam_sim_crossed(cp, before, r->true_angle, r->cam_adv[cam],
+                                hit, DEC_MAX_CAM_EDGES);
+        for (u8 k = 0; k < nh; k++) {
+            if (r->drop_cam_edges > 0) { r->drop_cam_edges--; continue; }
+            tq_time_t at = r->t - dt + (tq_time_t)(hit[k].frac * (f32)dt);
+            decoder_on_cam_edge(&r->dec, cam, at, cp->e[hit[k].idx].rising);
+        }
+        /* A moving phaser displaces the pattern as the engine turns --
+         * and stops dead at its mechanical travel limit, which is why
+         * the decoder is entitled to call anything beyond that a jumped
+         * chain rather than a fast phaser. */
+        r->cam_adv[cam] += r->cam_slew[cam] * (f32)dt * 1.0e-6f;
+        if (r->cam_slew[cam] != 0.0f) {
+            r->cam_adv[cam] = tq_clampf(r->cam_adv[cam],
+                                        cp->adv_min_deg, cp->adv_max_deg);
+        }
     }
 
     /* Is there a tooth here? The gap is the last `missing` positions of
@@ -260,6 +282,173 @@ int main(void)
         tq_time_t when;
         TQ_CHECK(!decoder_time_for_angle(&a.dec, a.t, 100.0f, &when),
                  "scheduled an event with no sync");
+    }
+
+
+    /* ---- VANOS: the whole point of the multi-tooth cam -------------- */
+
+    TQ_CASE("phase is acquired across the phaser's FULL authority");
+    {
+        /* The regression that matters. The single-edge decoder rejected
+         * any cam more than cam_tolerance_deg from nominal, so past ~25
+         * crank degrees of advance it never reached FULL_SYNC at all --
+         * and since sched.c gates every spark and injector on
+         * decoder_has_phase(), the engine cranked and never fired. A real
+         * intake phaser has roughly 70 crank degrees of travel, so that
+         * was most of its range. */
+        int failures = 0;
+        for (f32 adv = 0.0f; adv <= 70.0f; adv += 5.0f) {
+            rig_t a;
+            rig_init(&a, 900.0f);
+            a.cam_adv[0] = adv;
+            a.cam_adv[1] = 0.0f;
+            spin(&a, 8 * TEETH, 0.0f);
+            if (a.dec.state != DEC_FULL_SYNC) failures++;
+        }
+        TQ_CHECK(failures == 0,
+                 "%d of 15 advance positions never reached full sync", failures);
+        TQ_PASS("syncs anywhere in the intake phaser's travel");
+    }
+
+    TQ_CASE("an exhaust cam that parks ADVANCED and retards also syncs");
+    {
+        /* Exhaust travel is negative from park. A design carrying a
+         * single unsigned "authority" cannot express that and rejects a
+         * healthy exhaust cam on every edge. */
+        int failures = 0;
+        for (f32 adv = 0.0f; adv >= -55.0f; adv -= 5.0f) {
+            rig_t a;
+            rig_init(&a, 900.0f);
+            a.cam_adv[0] = 0.0f;
+            a.cam_adv[1] = adv;
+            spin(&a, 8 * TEETH, 0.0f);
+            if (a.dec.state != DEC_FULL_SYNC) failures++;
+            f32 m;
+            if (!decoder_cam_advance(&a.dec, 1u, a.t, &m, NULL)) failures++;
+        }
+        TQ_CHECK(failures == 0, "%d failures across exhaust travel", failures);
+        TQ_PASS("negative (exhaust) advance is measured, not rejected");
+    }
+
+    TQ_CASE("cam advance is measured, and measured accurately");
+    {
+        for (f32 adv = 0.0f; adv <= 60.0f; adv += 20.0f) {
+            rig_t a;
+            rig_init(&a, 1500.0f);
+            a.cam_adv[0] = adv;
+            spin(&a, 10 * TEETH, 0.0f);
+            f32 m = 0.0f;
+            u32 age = 0;
+            TQ_CHECK(decoder_cam_advance(&a.dec, 0u, a.t, &m, &age),
+                     "no advance measurement at %.0f deg", (double)adv);
+            TQ_NEAR(m, adv, 1.0f, "advance at %.0f", (double)adv);
+        }
+        TQ_PASS("reports cam position in crank degrees");
+    }
+
+    TQ_CASE("a phaser slewing during acquisition still locks");
+    {
+        rig_t a;
+        rig_init(&a, 1200.0f);
+        a.cam_slew[0] = 250.0f;          /* crank deg/s, a brisk move */
+        spin(&a, 10 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.state == DEC_FULL_SYNC,
+                 "lost phase while the cam was moving (state %d)", a.dec.state);
+        TQ_PASS("acquires phase while the cam is travelling");
+    }
+
+    TQ_CASE("one dropped cam edge does not cost the lock");
+    {
+        rig_t a;
+        rig_init(&a, 1500.0f);
+        spin(&a, 8 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.state == DEC_FULL_SYNC, "precondition");
+        a.drop_cam_edges = 1;            /* swallow the next cam edge */
+        spin(&a, 4 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.state == DEC_FULL_SYNC,
+                 "a single dropped cam edge broke phase (state %d)",
+                 a.dec.state);
+        TQ_PASS("absorbs a dropped cam edge");
+    }
+
+    TQ_CASE("a jumped timing chain is detected and latches");
+    {
+        /* The pattern still matches perfectly -- the wheel is undamaged --
+         * but it sits bodily outside the phaser's mechanical travel.
+         * That is what a jumped chain looks like, and it is the failure
+         * that bends valves. The single-edge decoder could not see it:
+         * its tolerance had to be wide enough to pass a moving phaser,
+         * which is wide enough to pass a jumped chain too. */
+        rig_t a;
+        rig_init(&a, 1200.0f);
+        a.cam_adv[0] = 200.0f;           /* far outside 0..70 */
+        a.cam_adv[1] = 200.0f;
+        spin(&a, 12 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.chain_fault, "a jumped chain went undetected");
+        TQ_CHECK(a.dec.state != DEC_FULL_SYNC,
+                 "claimed phase with a jumped chain (state %d)", a.dec.state);
+        TQ_PASS("catches a jumped chain");
+
+        /* And it does not un-latch itself by resyncing. */
+        a.cam_adv[0] = 0.0f;
+        a.cam_adv[1] = 0.0f;
+        spin(&a, 20 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.chain_fault, "chain fault cleared itself");
+        TQ_CHECK(a.dec.state != DEC_FULL_SYNC,
+                 "resumed firing after a suspected jumped chain");
+        TQ_PASS("a suspected jumped chain needs a human, not a key cycle");
+    }
+
+    TQ_CASE("a faulted cam cannot hand the job to its neighbour");
+    {
+        rig_t a;
+        rig_init(&a, 1200.0f);
+        a.cam_adv[0] = 200.0f;           /* cam 0 is lying */
+        a.cam_adv[1] = 0.0f;             /* cam 1 looks perfect */
+        spin(&a, 16 * TEETH, 0.0f);
+        TQ_CHECK(a.dec.chain_fault, "no fault raised");
+        TQ_CHECK(a.dec.state != DEC_FULL_SYNC,
+                 "the healthy cam granted phase anyway (state %d)",
+                 a.dec.state);
+        TQ_PASS("one bad cam stops the engine, it does not get outvoted");
+    }
+
+    TQ_CASE("cam advance goes invalid when sync is lost, never stale");
+    {
+        /* A phaser loop is an integrating plant. Handed a frozen
+         * measurement it winds up and drives the cam into its stop, so
+         * "no measurement" must be reported as such rather than as the
+         * last good number. */
+        rig_t a;
+        rig_init(&a, 1500.0f);
+        a.cam_adv[0] = 40.0f;
+        spin(&a, 10 * TEETH, 0.0f);
+        f32 m = 0.0f;
+        TQ_CHECK(decoder_cam_advance(&a.dec, 0u, a.t, &m, NULL),
+                 "precondition: no measurement");
+        decoder_check_timeout(&a.dec, a.t + 500000u);     /* engine stopped */
+        TQ_CHECK(!decoder_cam_advance(&a.dec, 0u, a.t, &m, NULL),
+                 "kept serving a stale cam position after sync loss");
+        TQ_PASS("refuses to serve a stale cam position");
+    }
+
+    TQ_CASE("phase arrives sooner than the single-edge decoder managed");
+    {
+        /* The old design needed crank sync and then had to wait for the
+         * one cam edge in the cycle. Three edges per cycle, each of which
+         * narrows the candidate set, gets there in less of a turn. */
+        rig_t a;
+        rig_init(&a, 250.0f);            /* cranking speed */
+        int teeth = 0;
+        while (a.dec.state != DEC_FULL_SYNC && teeth < 10 * TEETH) {
+            step_tooth(&a, 0.0f);
+            teeth++;
+        }
+        TQ_CHECK(a.dec.state == DEC_FULL_SYNC, "never synced while cranking");
+        TQ_CHECK(teeth < 4 * TEETH,
+                 "took %d teeth (%.1f revolutions) to reach phase",
+                 teeth, (double)teeth / (double)TEETH);
+        TQ_PASS("phase inside four crank revolutions from a standing start");
     }
 
     return tq_report("decoder");

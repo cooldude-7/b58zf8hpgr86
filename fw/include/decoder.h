@@ -14,6 +14,7 @@
 #ifndef TQ_DECODER_H
 #define TQ_DECODER_H
 
+#include "hal.h"
 #include "tq_types.h"
 
 typedef enum {
@@ -31,6 +32,53 @@ typedef enum {
     DEC_LOSS_CAM           /* cam disagreed with the crank */
 } dec_loss_t;
 
+/* How many cam inputs the decoder tracks. The HAL budgets four so a V8
+ * with four phasers needs no second design; a B48 fits two. */
+#define DEC_N_CAMS HAL_CAM_COUNT
+#define DEC_MAX_CAM_EDGES 8
+
+/* One feature on a cam target wheel.
+ *
+ * BMW's cam wheels are deliberately multi-featured with UNEQUAL spacing.
+ * That is not decoration: BMW's own training material says the "special
+ * aperture pattern facilitates emergency operation in the event of the
+ * crankshaft sensor failing", and that the same sensor provides
+ * "feedback relating to the camshaft position for VANOS control".
+ *
+ * `angle_deg` is where this edge sits in the 720 frame with the phaser at
+ * ZERO advance. The whole pattern translates rigidly as the phaser moves,
+ * so the angles all shift together and the SPACINGS between them do not
+ * move at all. That is the property the decoder is built on. */
+typedef struct {
+    f32 angle_deg;         /* 0..720, at zero advance */
+    bool rising;           /* which polarity carries the pattern */
+} dec_cam_edge_t;
+
+typedef struct {
+    u8 n_edges;                          /* 0 = this cam is not fitted */
+    dec_cam_edge_t e[DEC_MAX_CAM_EDGES]; /* ascending in angle_deg */
+
+    /* Phaser travel from park, in CRANK degrees, SIGNED. An intake cam
+     * parks fully retarded and advances, so its range is 0..+N. An
+     * exhaust cam parks fully ADVANCED and retards, so its range is
+     * -N..0. A single unsigned "authority" cannot express the second and
+     * would reject a healthy exhaust cam on every edge. Park must lie
+     * inside the range. */
+    f32 adv_min_deg;
+    f32 adv_max_deg;
+
+    /* Window for matching a measured interval against a pattern spacing.
+     * This is measurement jitter ONLY -- it is not phaser authority,
+     * because a spacing does not move when the phaser does. The runtime
+     * widens it for how far the phaser can slew during the interval. */
+    f32 match_tol_deg;
+
+    /* How fast the phaser can physically move, crank degrees per second.
+     * Used both to widen the match window and to reject a measurement
+     * that jumped further than oil pressure could have moved it. */
+    f32 slew_max_dps;
+} dec_cam_pattern_t;
+
 typedef struct {
     u8 teeth_total;        /* teeth on a full wheel if none were missing (60) */
     u8 teeth_missing;      /* how many are ground off (2) */
@@ -39,12 +87,53 @@ typedef struct {
     /* Crank angle of the first tooth AFTER the gap, in degrees BTDC of
      * cylinder 1 compression. Measured with a timing light, not guessed. */
     f32 gap_to_tdc_deg;
-    /* Where in the 720-degree cycle the cam edge occurs, and how far off
-     * it may be before the cam is disbelieved. This is what gives phase:
-     * the crank alone cannot tell compression from exhaust. */
-    f32 cam_edge_angle_deg;      /* 0..720 */
-    f32 cam_tolerance_deg;
+    /* One cam pattern per cam input. n_edges == 0 means "not fitted". */
+    dec_cam_pattern_t cam[DEC_N_CAMS];
 } dec_config_t;
+
+typedef enum {
+    DEC_CAM_SEARCH = 0,    /* which edge of the pattern are we on? */
+    DEC_CAM_LOCKED,        /* edge index known; advance is measurable */
+    DEC_CAM_FAULT          /* refuses to contribute anything, latched */
+} dec_cam_state_t;
+
+typedef struct {
+    dec_cam_state_t state;
+    u16 alive;             /* candidate edge indices, one bit each */
+    u8 idx;                /* current edge index when LOCKED */
+    u8 run;                /* consecutive edges that matched */
+    u8 reject_run;         /* consecutive edges whose SPACING did not fit */
+    /* Consecutive edges that fitted the pattern but sat outside the
+     * phaser's mechanical travel. Counted separately from reject_run,
+     * because they mean the opposite thing: the wheel is fine and its
+     * position is not. That is a jumped chain, not a noisy edge. */
+    u8 range_run;
+
+    /* Crank degrees since this cam's last edge, accumulated tooth by
+     * tooth. Measuring the interval this way rather than subtracting two
+     * 720-frame angles is what makes it unambiguous: a cam pattern has
+     * spacings larger than 360 degrees, so a difference of angles cannot
+     * tell 100 from 820. A counter can. */
+    f32 since_deg;
+    bool have_prev;
+    tq_time_t last_edge;   /* this cam's previous edge, for the slew gate */
+
+    /* Advance, in CRANK degrees, positive = advanced (earlier). */
+    f32 advance_raw;       /* newest single measurement */
+    f32 advance_deg;       /* averaged over one whole pattern */
+    bool valid;
+    tq_time_t at;          /* when advance_deg was last updated */
+
+    /* One residual per edge index, so that each edge of the wheel
+     * contributes exactly once to the average. Machining error on any
+     * single lobe then cancels instead of surviving as a once-per-cycle
+     * ripple -- which is the one disturbance sitting right inside a
+     * phaser control loop's bandwidth. */
+    f32 resid[DEC_MAX_CAM_EDGES];
+    bool resid_have[DEC_MAX_CAM_EDGES];
+    f32 resid_sum;
+    u8 resid_count;
+} dec_cam_t;
 
 typedef struct {
     dec_config_t cfg;
@@ -70,8 +159,13 @@ typedef struct {
 
     /* phase */
     bool second_revolution;/* true when we are in 360..720 */
-    bool cam_seen;
-    tq_time_t cam_edge;
+    dec_cam_t cam[DEC_N_CAMS];
+    u8 phase_cam;          /* which cam granted phase, 0xFF for none */
+    /* Latched across cams: no cam may grant phase while this is set,
+     * because a suspected jumped chain is not a thing to retry. Cleared
+     * only by decoder_init -- it should require a human, not a key
+     * cycle. */
+    bool chain_fault;
 
     /* diagnostics */
     u32 sync_count;
@@ -86,7 +180,18 @@ dec_config_t decoder_config_b48(void);
 void decoder_on_crank_edge(decoder_t *d, tq_time_t edge_us);
 
 /* Call from the cam input-capture ISR. */
-void decoder_on_cam_edge(decoder_t *d, tq_time_t edge_us);
+/* A cam edge on cam `cam` (0 = HAL_CAP_CAM_1). `rising` is the polarity:
+ * a pattern is defined on one polarity and the other is ignored, because
+ * the mark/space of these sensors carries no pattern information. */
+void decoder_on_cam_edge(decoder_t *d, u8 cam, tq_time_t edge_us, bool rising);
+
+/* Measured cam advance in CRANK degrees, positive = advanced. Returns
+ * false when there is no trustworthy measurement, which a phaser control
+ * loop must treat as "do not integrate" rather than as zero: an
+ * integrating plant driven from a frozen measurement winds up and drives
+ * the cam into its stop. `age_us` is how old the measurement is. */
+bool decoder_cam_advance(const decoder_t *d, u8 cam, tq_time_t now_us,
+                         f32 *advance_deg, u32 *age_us);
 
 /* Call from the slow task: declares sync lost if the engine has stopped. */
 void decoder_check_timeout(decoder_t *d, tq_time_t now_us);
