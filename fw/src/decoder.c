@@ -34,15 +34,25 @@ dec_config_t decoder_config_b48(void)
     c.cam[0].e[0].angle_deg = 181.0f; c.cam[0].e[0].rising = true;
     c.cam[0].e[1].angle_deg = 361.0f; c.cam[0].e[1].rising = true;
     c.cam[0].e[2].angle_deg = 581.0f; c.cam[0].e[2].rising = true;
-    /* Intake parks fully retarded and advances from there. ~35 cam
-     * degrees of authority is ~70 crank degrees. */
+    /* CONFIRMED against BMW's own timing diagram (Technical training,
+     * Product information, B46 Engine, section 2.3.2 VANOS, p.66 --
+     * the B46 and B48 are the same engine architecture). Its x-axis is
+     * crank degrees ("KW"), and it dimensions the intake peak at 122.5
+     * with the solenoid DE-ENERGIZED and 52.5 at 100 % duty. So the
+     * intake parks fully RETARDED and advances by exactly
+     * 122.5 - 52.5 = 70 crank degrees. */
     c.cam[0].adv_min_deg = -8.0f;          /* a little slack below park */
     c.cam[0].adv_max_deg = 70.0f;
     c.cam[0].match_tol_deg = 8.0f;
     c.cam[0].slew_max_dps = 400.0f;
 
     /* Exhaust parks fully ADVANCED and retards from there, so its range
-     * is negative. A single unsigned authority cannot express this. */
+     * is negative. A single unsigned authority cannot express this.
+     * Same BMW diagram: exhaust peak at 120 crank degrees before TDC
+     * de-energized, 60 at 100 % duty, so 60 crank degrees of travel in
+     * the retard direction. The de-energized position IS the parked one:
+     * the document says the locking pin blocks the VANOS unit when the
+     * actuator is de-energized. */
     c.cam[1].n_edges = 3;
     c.cam[1].e[0].angle_deg = 181.0f; c.cam[1].e[0].rising = true;
     c.cam[1].e[1].angle_deg = 361.0f; c.cam[1].e[1].rising = true;

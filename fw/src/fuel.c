@@ -103,9 +103,20 @@ f32 tq_hpfp_update(tq_hpfp_t *h, f32 dt_s, f32 measured_kpa,
 tq_hpfp_sched_t tq_hpfp_sched_default(void)
 {
     tq_hpfp_sched_t c;
-    /* PROVISIONAL, like the trigger numbers: the B48 pump is driven off
-     * the exhaust cam and the lobe count and phasing must be confirmed
-     * against the real engine before this controls a rail. */
+    /* lobes_per_cycle is CONFIRMED: BMW's B46 training document says
+     * "The familiar single-piston high pressure pump by Bosch is used.
+     * The high pressure pump is driven by a triple cam which is attached
+     * to the exhaust camshaft." Three lobes per cam revolution is three
+     * per 720 crank degrees.
+     *
+     * first_lobe_deg is NOT confirmed, and worse, a fixed value here is
+     * wrong by construction. The pump rides the EXHAUST camshaft, which
+     * is phased by VANOS across 60 crank degrees -- so the lobes move
+     * with the phaser while this number does not, and the valve-close
+     * angle is aimed by up to half a lobe span into the wrong place.
+     * It is harmless only because nothing moves the cam yet. The fix is
+     * to offset this by the measured exhaust advance from
+     * decoder_cam_advance() once the VANOS loop lands. */
     c.lobes_per_cycle = 3.0f;
     c.first_lobe_deg = 0.0f;
     c.lobe_span_deg = 120.0f;
