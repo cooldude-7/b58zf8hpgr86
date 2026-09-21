@@ -4,8 +4,16 @@ A standalone engine management system for **modern** engines, with
 **transmission control as a first-class part of the architecture** rather than a
 bolt-on.
 
-Status: **architecture / pre-hardware.** Nothing here is built yet. These
-documents exist to make the expensive decisions before any PCBs are ordered.
+Status: **software built and tested, pre-hardware.** The control path — crank
+and cam decoding, angle-domain scheduling, the torque model, fuel and pump
+control, cam phasing and the Level 2 safety monitor — is implemented in C,
+cross-compiles for Cortex-M7, and passes 312 Python tests and 11 C suites on a
+PC. Nothing has run on silicon: the target build compiles but cannot link,
+because interrupt vectors, a linker script, startup code and a clock tree arrive
+with a board.
+
+There is also a second product in here now. See **[PROJECT.md](PROJECT.md)** for
+the whole picture, including what is real and what is not.
 
 ## Thesis
 
