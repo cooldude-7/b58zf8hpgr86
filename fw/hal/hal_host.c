@@ -19,9 +19,11 @@ static hal_tooth_cb g_cam_cb[HAL_CAP_COUNT];
 static void *g_cam_ctx[HAL_CAP_COUNT];
 static u32 g_overruns[HAL_CAP_COUNT];
 static u16 g_adc[HAL_ADC_COUNT];
-static f32 g_throttle;
 static f32 g_ocv[HAL_OCV_COUNT];
-static bool g_throttle_enabled;
+static f32 g_bridge[HAL_BRIDGE_COUNT];
+static bool g_bridge_on[HAL_BRIDGE_COUNT];
+static bool g_sw[HAL_SW_COUNT];
+static f32 g_sw_hz[HAL_SW_COUNT];
 static u32 g_watchdog_kicks;
 static bool g_watchdog_reset;
 
@@ -52,12 +54,14 @@ void hal_host_reset(void)
     memset(g_adc, 0, sizeof(g_adc));
     hal_host_event_count = 0;
     g_now = 1000000u;
-    g_throttle = 0.0f;
-    g_throttle_enabled = true;
     g_watchdog_kicks = 0;
     g_watchdog_reset = false;
     memset(g_overruns, 0, sizeof(g_overruns));
     memset(g_ocv, 0, sizeof(g_ocv));
+    memset(g_bridge, 0, sizeof(g_bridge));
+    memset(g_sw, 0, sizeof(g_sw));
+    memset(g_sw_hz, 0, sizeof(g_sw_hz));
+    for (u32 i = 0; i < HAL_BRIDGE_COUNT; i++) g_bridge_on[i] = true;
 }
 
 static void record(hal_out_t ch, bool rising, tq_time_t t)
@@ -121,8 +125,6 @@ void hal_host_advance_to(tq_time_t t)
 }
 
 void hal_host_set_adc(hal_adc_t ch, u16 counts) { g_adc[ch] = counts; }
-f32 hal_host_throttle(void) { return g_throttle; }
-bool hal_host_throttle_enabled(void) { return g_throttle_enabled; }
 u32 hal_host_watchdog_kicks(void) { return g_watchdog_kicks; }
 bool hal_host_watchdog_tripped(void) { return g_watchdog_reset; }
 
@@ -261,6 +263,43 @@ bool hal_out_is_active(hal_out_t ch)
     return ch < HAL_OUT_COUNT && g_out[ch].active;
 }
 
+void hal_bridge_pwm(hal_bridge_t ch, f32 duty)
+{
+    if (ch >= HAL_BRIDGE_COUNT) return;
+    g_bridge[ch] = duty;
+    g_bridge_on[ch] = true;
+}
+
+void hal_bridge_disable(hal_bridge_t ch)
+{
+    if (ch >= HAL_BRIDGE_COUNT) return;
+    g_bridge[ch] = 0.0f;
+    g_bridge_on[ch] = false;
+}
+
+f32 hal_host_bridge(hal_bridge_t ch)
+{
+    return ch < HAL_BRIDGE_COUNT ? g_bridge[ch] : 0.0f;
+}
+
+bool hal_host_bridge_enabled(hal_bridge_t ch)
+{
+    return ch < HAL_BRIDGE_COUNT ? g_bridge_on[ch] : false;
+}
+
+void hal_sw_set(hal_sw_t ch, bool on)
+{
+    if (ch < HAL_SW_COUNT) g_sw[ch] = on;
+}
+
+void hal_sw_frequency(hal_sw_t ch, f32 hz)
+{
+    if (ch < HAL_SW_COUNT) g_sw_hz[ch] = hz;
+}
+
+bool hal_host_sw(hal_sw_t ch) { return ch < HAL_SW_COUNT ? g_sw[ch] : false; }
+f32 hal_host_sw_hz(hal_sw_t ch) { return ch < HAL_SW_COUNT ? g_sw_hz[ch] : 0.0f; }
+
 void hal_ocv_pwm(hal_ocv_t ch, f32 duty)
 {
     if (ch < HAL_OCV_COUNT) g_ocv[ch] = duty;
@@ -271,8 +310,6 @@ f32 hal_host_ocv(hal_ocv_t ch)
     return ch < HAL_OCV_COUNT ? g_ocv[ch] : 0.0f;
 }
 
-void hal_throttle_pwm(f32 duty) { g_throttle = tq_clampf(duty, -1.0f, 1.0f); }
-void hal_throttle_disable(void) { g_throttle_enabled = false; g_throttle = 0.0f; }
 
 u16 hal_adc_read(hal_adc_t ch) { return ch < HAL_ADC_COUNT ? g_adc[ch] : 0; }
 

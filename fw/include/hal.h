@@ -121,6 +121,36 @@ bool hal_inj_configure(hal_out_t ch, const hal_inj_drive_t *d);
  * injectors will not open properly and fuelling is not trustworthy. */
 u16 hal_inj_boost_voltage(void);
 
+/* ---- H-bridge actuators ----------------------------------------------- */
+/* The throttle is not the only position-controlled motor on a modern
+ * engine. The B48's wastegate is a motor with a position sensor, not a
+ * pneumatic can, so it needs the same treatment: drive one way or the
+ * other, read where it actually went. */
+typedef enum {
+    HAL_BRIDGE_THROTTLE = 0,
+    HAL_BRIDGE_WASTEGATE,
+    HAL_BRIDGE_COUNT
+} hal_bridge_t;
+
+void hal_bridge_pwm(hal_bridge_t ch, f32 duty);   /* -1..1, sign is direction */
+void hal_bridge_disable(hal_bridge_t ch);         /* open the bridge */
+
+/* ---- low-side switched outputs ---------------------------------------- */
+/* Relays and lamps. Nothing here is time-critical, which is exactly why
+ * they are not on the compare channels: a fuel pump relay does not need
+ * microsecond placement and must not compete for one. */
+typedef enum {
+    HAL_SW_FUEL_PUMP = 0,
+    HAL_SW_FAN,
+    HAL_SW_MIL,             /* check engine lamp */
+    HAL_SW_TACHO,
+    HAL_SW_COUNT
+} hal_sw_t;
+
+void hal_sw_set(hal_sw_t ch, bool on);
+/* Tacho wants a frequency, not a level. 0 Hz means off. */
+void hal_sw_frequency(hal_sw_t ch, f32 hz);
+
 /* ---- cam phaser oil control valves ------------------------------------ */
 /* A hydraulic vane phaser is positioned by letting oil into one side of
  * the vane or the other, and the valve duty commands the cam's VELOCITY,
@@ -135,10 +165,6 @@ typedef enum {
 
 void hal_ocv_pwm(hal_ocv_t ch, f32 duty);   /* 0..1; 0 parks on the pin */
 
-/* ---- throttle -------------------------------------------------------- */
-void hal_throttle_pwm(f32 duty);       /* -1..1, sign is direction */
-void hal_throttle_disable(void);       /* H-bridge off: return spring wins */
-
 /* ---- analogue -------------------------------------------------------- */
 typedef enum {
     HAL_ADC_PEDAL_A = 0, HAL_ADC_PEDAL_B,
@@ -146,6 +172,7 @@ typedef enum {
     HAL_ADC_MAP, HAL_ADC_IAT, HAL_ADC_CLT,
     HAL_ADC_LAMBDA, HAL_ADC_RAIL_PRESSURE, HAL_ADC_BATTERY,
     HAL_ADC_OIL_PRESSURE,
+    HAL_ADC_WASTEGATE_POS,
     HAL_ADC_KNOCK,
     HAL_ADC_COUNT
 } hal_adc_t;

@@ -15,6 +15,12 @@ void ecu_init(ecu_t *e)
     sched_set_tdc(&e->sch, 2, 360.0f);
     sched_set_tdc(&e->sch, 3, 540.0f);
     tq_monitor_reset(&e->mon);
+    sens_config_t scfg = sensors_config_default();
+    sensors_init(&e->sens, &scfg);
+    e->coord_cfg = tq_coord_config_default();
+    tq_coord_init(&e->coord, &e->coord_cfg);
+    e->thr_cfg = thr_config_default();
+    throttle_init(&e->thr, &e->thr_cfg);
     van_config_t vcfg = vanos_config_default();
     vanos_init(&e->van, &vcfg);
     for (u8 i = 0; i < VAN_N_CAM; i++) {
@@ -121,6 +127,23 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     s->fast_cycles++;
     s->rpm = decoder_rpm(&e->dec);
 
+    /* ---- sensors ------------------------------------------------------- */
+    /* Everything downstream reads physical units. Before this existed the
+     * whole control path ran on whatever the tests happened to write. */
+    sensors_update(&e->sens, dt_s);
+    s->sensor_faults = e->sens.fault_mask;
+    s->map_kpa = sensors_value(&e->sens, HAL_ADC_MAP);
+    s->iat_k = sensors_value(&e->sens, HAL_ADC_IAT);
+    s->clt_k = sensors_value(&e->sens, HAL_ADC_CLT);
+    s->lambda_meas = sensors_value(&e->sens, HAL_ADC_LAMBDA);
+    s->rail_kpa = sensors_value(&e->sens, HAL_ADC_RAIL_PRESSURE);
+    s->battery_v = sensors_value(&e->sens, HAL_ADC_BATTERY);
+    s->oil_kpa = sensors_value(&e->sens, HAL_ADC_OIL_PRESSURE);
+    s->pedal_a = sensors_value(&e->sens, HAL_ADC_PEDAL_A);
+    s->pedal_b = sensors_value(&e->sens, HAL_ADC_PEDAL_B);
+    s->tps_a = sensors_value(&e->sens, HAL_ADC_TPS_A);
+    s->tps_b = sensors_value(&e->sens, HAL_ADC_TPS_B);
+
     /* ---- state machine ------------------------------------------------ */
     if (!decoder_has_phase(&e->dec)) {
         s->state = (s->rpm > 50.0f) ? ECU_CRANKING : ECU_OFF;
@@ -129,6 +152,44 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     } else {
         s->state = (s->rpm > 400.0f) ? ECU_RUNNING : ECU_CRANKING;
     }
+
+    /* ---- the torque path ----------------------------------------------- */
+    /* Pedal to newton-metres, arbitrated with idle, through the inverse
+     * model to a manifold pressure the throttle has to deliver. */
+    tq_coord_in_t ci;
+    ci.pedal_pct = (s->pedal_a < s->pedal_b) ? s->pedal_a : s->pedal_b;
+    ci.rpm = s->rpm;
+    ci.clt_k = s->clt_k;
+    ci.ve = s->ve;
+    ci.map_kpa = s->map_kpa;
+    ci.iat_k = s->iat_k;
+    ci.spark_deg = s->spark_deg;
+    ci.mbt_deg = s->mbt_deg;
+    ci.lambda = s->lambda_target;
+    ci.running = (s->state == ECU_RUNNING);
+    ci.dt = dt_s;
+    /* Whatever the monitor decided LAST tick is this tick's ceiling. The
+     * monitor has to judge what was actually commanded, so it runs after
+     * this -- which means its verdict necessarily arrives one tick late.
+     * At 1 ms that is invisible, and the alternative is a loop. */
+    ci.limit_nm = tq_monitor_torque_cap(&e->mon, e->coord_cfg.max_torque_nm);
+    tq_coord_update(&e->coord, &e->coord_cfg, &ci, &e->engine);
+    s->torque_request = e->coord.target_nm;
+    s->map_target_kpa = e->coord.map_target_kpa;
+    s->idle_target_rpm = e->coord.idle_target_rpm;
+
+    /* ---- throttle -------------------------------------------------------- */
+    thr_in_t ti;
+    ti.dt = dt_s;
+    ti.map_target_kpa = e->coord.map_target_kpa;
+    ti.map_actual_kpa = s->map_kpa;
+    ti.tps_a_pct = s->tps_a;
+    ti.tps_b_pct = s->tps_b;
+    ti.allow = (e->mon.limp < MON_IDLE_ONLY)
+            && sensors_ok(&e->sens, HAL_ADC_TPS_A)
+            && sensors_ok(&e->sens, HAL_ADC_TPS_B);
+    throttle_update(&e->thr, &e->thr_cfg, &ti);
+    s->tps_cmd = e->thr.cmd_pct;
 
     /* ---- torque structure --------------------------------------------- */
     s->air_g = tq_air_mass(s->ve, s->map_kpa, s->iat_k + 15.0f, &e->engine);
@@ -173,7 +234,12 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     in.tps_cmd = s->tps_cmd;
     in.torque = s->torque_estimate;
     in.rpm = s->rpm;
-    in.max_torque = s->torque_request > 1.0f ? s->torque_request : 400.0f;
+    /* The ceiling is what the ENGINE can make, not what was asked for.
+     * permissible_torque() already applies the pedal shape to it, so
+     * passing the request in here applied it twice -- and since nothing
+     * wrote torque_request, it fell through to a fixed 400 Nm and the
+     * permissible check compared against a constant. */
+    in.max_torque = e->coord_cfg.max_torque_nm;
     in.rev_limit = e->rev_limit;
     in.map_kpa = s->map_kpa;
     in.overboost_kpa = e->overboost_kpa;
@@ -181,9 +247,9 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
 
     if (limp == MON_SHUTDOWN) {
         e->fuel_cut = true;
-        hal_throttle_disable();
+        hal_bridge_disable(HAL_BRIDGE_THROTTLE);
     } else if (limp >= MON_IDLE_ONLY) {
-        hal_throttle_disable();
+        hal_bridge_disable(HAL_BRIDGE_THROTTLE);
     }
 
     apply_cuts(e);

@@ -22,9 +22,11 @@ void hal_host_cam_edge(tq_time_t t);            /* cam 1, rising */
 void hal_host_cam_edge_ch(hal_cap_t ch, tq_time_t t, bool rising);
 void hal_host_capture_overrun(hal_cap_t ch);
 void hal_host_set_adc(hal_adc_t ch, u16 counts);
-f32 hal_host_throttle(void);
 f32 hal_host_ocv(hal_ocv_t ch);
-bool hal_host_throttle_enabled(void);
+f32 hal_host_bridge(hal_bridge_t ch);
+bool hal_host_bridge_enabled(hal_bridge_t ch);
+bool hal_host_sw(hal_sw_t ch);
+f32 hal_host_sw_hz(hal_sw_t ch);
 u32 hal_host_watchdog_kicks(void);
 bool hal_host_watchdog_tripped(void);
 void hal_host_set_boost_voltage(u16 v);

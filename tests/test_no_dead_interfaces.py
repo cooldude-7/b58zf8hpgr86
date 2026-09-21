@@ -27,10 +27,10 @@ KNOWN_UNHANDLED_COMMANDS = {
                       # gauges both need it. Tracked.
 }
 
-# HAL entry points the control path never calls.
+# HAL entry points the control path never calls. This list only shrinks:
+# hal_adc_read left it when the sensor layer landed, and the test fails if
+# an entry is fixed but not removed.
 KNOWN_UNCALLED_HAL = {
-    "hal_adc_read",           # no sensor layer exists yet: nothing converts
-                              # ADC counts into the ECU's measured signals
     "hal_can_send",           # no CAN layer yet
     "hal_can_recv",
     "hal_flash_read",         # calibration storage not wired
@@ -46,19 +46,10 @@ KNOWN_UNCALLED_HAL = {
     "hal_crank_set_callback",
     "hal_cam_set_callback",
 
-    # There is no throttle controller. The ECU can only hal_throttle_disable()
-    # for limp; nothing ever POSITIONS the throttle, so drive-by-wire is
-    # not implemented.
-    #
-    # That leaves a latent fault waiting for the sensor layer. The Level 2
-    # monitor's tracking check compares tps_cmd against tps_a
-    # (fw/src/monitor.c:41), and NOTHING writes ecu_signals_t.tps_cmd --
-    # it is zero from the memset in ecu_init onward. Today tps_a is also
-    # always zero, so the two agree and the check passes. The moment a
-    # sensor layer makes tps_a real while tps_cmd stays zero, the check
-    # trips MON_F_TPS_TRACKING and limps the car to idle. Two gaps are
-    # currently cancelling each other out.
-    "hal_throttle_pwm",
+    # Relay and lamp outputs. Declared with the HAL they belong to;
+    # fuel pump, fan and tacho control is still to be written.
+    "hal_sw_set",
+    "hal_sw_frequency",
 }
 
 # Tuner settings the UI collects that nothing consumes. The root cause is

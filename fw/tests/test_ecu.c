@@ -8,6 +8,7 @@
 
 #include "ecu.h"
 #include "crank_sim.h"
+#include "engine_rig.h"
 #include "hal_host.h"
 #include "tq_test.h"
 
@@ -22,6 +23,9 @@ typedef struct {
     tq_time_t t;
     f32 rpm;
     f32 fast_accum;
+    thr_plant_t plate;
+    sens_config_t scfg;
+    f32 pedal_pct;
     f32 slow_accum;
 } rig_t;
 
@@ -50,16 +54,19 @@ static void rig_init(rig_t *r, f32 rpm)
 
     ecu_signals_t *s = &r->ecu.sig;
     s->ve = 0.90f;
-    s->map_kpa = 95.0f;
     s->mbt_deg = 22.0f;
     s->knock_limit_deg = 30.0f;
     s->spark_deg = 20.0f;
     s->lambda_target = 1.0f;
-    s->lambda_meas = 1.0f;
-    s->rail_kpa = 8000.0f;
-    s->pedal_a = s->pedal_b = 30.0f;
-    s->tps_a = s->tps_b = s->tps_cmd = 30.0f;
-    s->torque_request = 200.0f;
+
+    /* Feed the ECU through its real sensor path rather than writing its
+     * signals: the conversion, the plausibility check and the fallback
+     * all get exercised that way. */
+    r->scfg = sensors_config_default();
+    r->pedal_pct = 30.0f;
+    thr_plant_init(&r->plate, 7.0f);
+    r->plate.pos_pct = 30.0f;
+    rig_sensors_running(&r->scfg, 95.0f, r->pedal_pct, r->plate.pos_pct);
 }
 
 static void step_tooth(rig_t *r)
@@ -97,6 +104,13 @@ static void step_tooth(rig_t *r)
     /* the periodic tasks, at their real rates */
     r->fast_accum += dt_s;
     while (r->fast_accum >= 0.001f) {
+        /* The plate moves because the bridge drove it, and the sensors
+         * report where it went. Without a plant here the commanded and
+         * measured positions diverge forever and the Level 2 tracking
+         * check fires on a fault nobody injected. */
+        thr_plant_step(&r->plate, r->ecu.thr.duty, r->ecu.thr.enabled, 0.001f);
+        rig_sensor(&r->scfg, HAL_ADC_TPS_A, r->plate.pos_pct);
+        rig_sensor(&r->scfg, HAL_ADC_TPS_B, r->plate.pos_pct);
         ecu_fast_task(&r->ecu, 0.001f);
         r->fast_accum -= 0.001f;
     }
@@ -209,7 +223,7 @@ int main(void)
         spin(&r, 4 * TEETH);
         hal_host_event_count = 0;
         spin(&r, 11);
-        r.ecu.sig.map_kpa = 400.0f;           /* overboost: hard cut */
+        rig_sensor(&r.scfg, HAL_ADC_MAP, 400.0f);  /* overboost: hard cut */
         spin(&r, 3 * TEETH);
         int rise = 0, fall = 0;
         for (u8 c = 0; c < 4; c++) {
@@ -224,14 +238,14 @@ int main(void)
     {
         rig_init(&r, 3000.0f);
         spin(&r, 4 * TEETH);
-        r.ecu.sig.pedal_a = 90.0f;
-        r.ecu.sig.pedal_b = 5.0f;
+        rig_sensor(&r.scfg, HAL_ADC_PEDAL_A, 90.0f);
+        rig_sensor(&r.scfg, HAL_ADC_PEDAL_B, 5.0f);
         /* the debounce is 100 ms, so 150 one-millisecond cycles */
         for (int i = 0; i < 150; i++) ecu_fast_task(&r.ecu, 0.001f);
         TQ_CHECK(r.ecu.mon.limp >= MON_REDUCED, "no limp on a pedal fault");
         TQ_CHECK(r.ecu.mon.fault == MON_F_PEDAL_PLAUSIBILITY,
                  "fault reported as %d", r.ecu.mon.fault);
-        TQ_CHECK(hal_host_throttle_enabled(),
+        TQ_CHECK(hal_host_bridge_enabled(HAL_BRIDGE_THROTTLE),
                  "a reduced-power limp should not open the bridge outright");
         TQ_PASS("pedal fault handled");
     }
@@ -240,12 +254,13 @@ int main(void)
     {
         rig_init(&r, 3000.0f);
         spin(&r, 4 * TEETH);
-        TQ_CHECK(hal_host_throttle_enabled(), "precondition");
-        r.ecu.sig.tps_a = 90.0f;
-        r.ecu.sig.tps_b = 5.0f;
+        TQ_CHECK(hal_host_bridge_enabled(HAL_BRIDGE_THROTTLE), "precondition");
+        r.plate.seized = true;    /* so the rig stops overwriting them */
+        rig_sensor(&r.scfg, HAL_ADC_TPS_A, 90.0f);
+        rig_sensor(&r.scfg, HAL_ADC_TPS_B, 5.0f);
         for (int i = 0; i < 150; i++) ecu_fast_task(&r.ecu, 0.001f);
         TQ_CHECK(r.ecu.mon.limp >= MON_IDLE_ONLY, "limp %d", r.ecu.mon.limp);
-        TQ_CHECK(!hal_host_throttle_enabled(),
+        TQ_CHECK(!hal_host_bridge_enabled(HAL_BRIDGE_THROTTLE),
                  "the throttle is still being driven with a plausibility fault");
         TQ_PASS("bridge opened on a throttle fault");
     }

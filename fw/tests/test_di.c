@@ -9,6 +9,7 @@
 
 #include "ecu.h"
 #include "crank_sim.h"
+#include "engine_rig.h"
 #include "hal_host.h"
 #include "tq_test.h"
 
@@ -22,6 +23,8 @@ typedef struct {
     f32 true_angle;
     tq_time_t t;
     f32 rpm;
+    thr_plant_t plate;
+    sens_config_t scfg;
     f32 fast_accum, slow_accum;
 } rig_t;
 
@@ -40,13 +43,15 @@ static void rig_init(rig_t *r, f32 rpm)
     hal_crank_set_callback(on_crank, r);
     hal_cam_set_callback(HAL_CAP_CAM_1, on_cam, r);
     ecu_signals_t *s = &r->ecu.sig;
-    s->ve = 0.90f; s->map_kpa = 95.0f;
+    s->ve = 0.90f;
     s->mbt_deg = 22.0f; s->knock_limit_deg = 30.0f; s->spark_deg = 20.0f;
-    s->lambda_target = 1.0f; s->lambda_meas = 1.0f;
-    s->rail_kpa = 8000.0f; s->rail_target_kpa = 8000.0f;
-    s->pedal_a = s->pedal_b = 30.0f;
-    s->tps_a = s->tps_b = s->tps_cmd = 30.0f;
-    s->torque_request = 200.0f;
+    s->lambda_target = 1.0f;
+    s->rail_target_kpa = 8000.0f;
+
+    r->scfg = sensors_config_default();
+    thr_plant_init(&r->plate, 7.0f);
+    r->plate.pos_pct = 30.0f;
+    rig_sensors_running(&r->scfg, 95.0f, 30.0f, r->plate.pos_pct);
 }
 
 static void step_tooth(rig_t *r)

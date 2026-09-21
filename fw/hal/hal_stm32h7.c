@@ -256,8 +256,10 @@ void tq_cap_isr(hal_cap_t ch, u8 timer_chan)
  * alias, not a measurement. It needs its own injected conversion,
  * angle-triggered and sampled above 20 kHz, or an external knock IC.
  */
-void hal_throttle_pwm(f32 duty) { (void)duty; }
-void hal_throttle_disable(void) { }
+void hal_bridge_pwm(hal_bridge_t ch, f32 duty) { (void)ch; (void)duty; }
+void hal_bridge_disable(hal_bridge_t ch) { (void)ch; }
+void hal_sw_set(hal_sw_t ch, bool on) { (void)ch; (void)on; }
+void hal_sw_frequency(hal_sw_t ch, f32 hz) { (void)ch; (void)hz; }
 void hal_ocv_pwm(hal_ocv_t ch, f32 duty) { (void)ch; (void)duty; }
 u16 hal_adc_read(hal_adc_t ch) { (void)ch; return 0u; }
 bool hal_inj_configure(hal_out_t ch, const hal_inj_drive_t *d) { (void)ch; (void)d; return false; }

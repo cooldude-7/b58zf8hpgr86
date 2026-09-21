@@ -23,6 +23,9 @@
 #include "model.h"
 #include "monitor.h"
 #include "sched.h"
+#include "sensors.h"
+#include "throttle.h"
+#include "torque.h"
 #include "vanos.h"
 
 typedef enum {
@@ -53,6 +56,9 @@ typedef struct {
      * loop must not integrate against a frozen number. vanos_fault is
      * reported, never acted on here: a cam that cannot find its target
      * is not a reason to stop fuelling the engine. */
+    f32 map_target_kpa;      /* what the torque path asked the air for */
+    f32 idle_target_rpm;
+    u16 sensor_faults;
     f32 cam_adv[VAN_N_CAM];
     bool cam_adv_valid[VAN_N_CAM];
     u8 vanos_fault[VAN_N_CAM];
@@ -66,6 +72,11 @@ typedef struct {
     sched_t sch;
     tq_monitor_t mon;
     vanos_t van;
+    sensors_t sens;
+    tq_coord_t coord;
+    tq_coord_config_t coord_cfg;
+    throttle_t thr;
+    thr_config_t thr_cfg;
     f32 cam_target[VAN_N_CAM];   /* commanded advance; a cal table later */
     tq_hpfp_t hpfp;
     tq_hpfp_sched_t hpfp_sched;
