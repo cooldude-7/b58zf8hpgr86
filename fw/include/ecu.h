@@ -23,6 +23,8 @@
 #include "model.h"
 #include "monitor.h"
 #include "sched.h"
+#include "aux.h"
+#include "boost.h"
 #include "enrich.h"
 #include "lambda.h"
 #include "sensors.h"
@@ -62,6 +64,8 @@ typedef struct {
     f32 lambda_trim;         /* long term x short term */
     bool decel_cut;
     bool lambda_closed;
+    f32 wastegate_pct;
+    bool pump_on, fan_on;
     f32 map_target_kpa;      /* what the torque path asked the air for */
     f32 idle_target_rpm;
     u16 sensor_faults;
@@ -87,6 +91,10 @@ typedef struct {
     enr_config_t enr_cfg;
     lambda_t lam;
     lam_config_t lam_cfg;
+    boost_t boost;
+    boost_config_t boost_cfg;
+    aux_t aux;
+    aux_config_t aux_cfg;
     f32 cam_target[VAN_N_CAM];   /* commanded advance; a cal table later */
     tq_hpfp_t hpfp;
     tq_hpfp_sched_t hpfp_sched;

@@ -5,9 +5,10 @@ A standalone engine management system for **modern** engines, with
 bolt-on.
 
 Status: **software built and tested, pre-hardware.** The control path — crank
-and cam decoding, angle-domain scheduling, the torque model, fuel and pump
-control, cam phasing and the Level 2 safety monitor — is implemented in C,
-cross-compiles for Cortex-M7, and passes 312 Python tests and 11 C suites on a
+and cam decoding, angle-domain scheduling, the sensor layer, the torque model,
+the throttle and wastegate loops, fuel, enrichment, closed-loop lambda, pump and
+cam phasing, and the Level 2 safety monitor — is implemented in C,
+cross-compiles for Cortex-M7, and passes 312 Python tests and 16 C suites on a
 PC. Nothing has run on silicon: the target build compiles but cannot link,
 because interrupt vectors, a linker script, startup code and a clock tree arrive
 with a board.

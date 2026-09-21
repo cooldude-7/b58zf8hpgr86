@@ -27,6 +27,8 @@ add_library(tqcore STATIC
     src/throttle.c
     src/enrich.c
     src/lambda.c
+    src/boost.c
+    src/aux.c
     src/ecu.c
     src/cal.c
     src/proto.c
@@ -55,7 +57,7 @@ add_test(NAME crosscheck
 
 set(TQ_TESTS test_decoder test_sched test_model test_fuel test_monitor test_ecu
              test_proto test_di test_vanos test_oc test_sensors
-             test_torque test_enrich test_lambda)
+             test_torque test_enrich test_lambda test_boost test_aux)
 foreach(t ${TQ_TESTS})
     add_executable(${t} tests/${t}.c)
     target_include_directories(${t} PRIVATE tests hal)

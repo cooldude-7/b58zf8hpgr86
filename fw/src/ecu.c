@@ -24,6 +24,10 @@ void ecu_init(ecu_t *e)
     enrich_init(&e->enr);
     e->lam_cfg = lam_config_default();
     lambda_init(&e->lam, &e->lam_cfg);
+    e->boost_cfg = boost_config_default();
+    boost_init(&e->boost, &e->boost_cfg);
+    e->aux_cfg = aux_config_default();
+    aux_init(&e->aux);
     throttle_init(&e->thr, &e->thr_cfg);
     van_config_t vcfg = vanos_config_default();
     vanos_init(&e->van, &vcfg);
@@ -378,6 +382,35 @@ void ecu_slow_task(ecu_t *e, f32 dt_s)
     lambda_update(&e->lam, &e->lam_cfg, &li);
     s->lambda_trim = e->lam.total;
     s->lambda_closed = e->lam.closed;
+
+    /* ---- boost ----------------------------------------------------------- */
+    /* The wastegate chases the SAME manifold pressure target the
+     * throttle does. Giving boost its own rpm-indexed target, the way
+     * most aftermarket ECUs do, is what makes boost and throttle fight
+     * each other on a torque-structured engine. */
+    boost_in_t bi;
+    bi.dt = dt_s;
+    bi.map_target_kpa = s->map_target_kpa;
+    bi.map_actual_kpa = s->map_kpa;
+    bi.gate_pct = sensors_value(&e->sens, HAL_ADC_WASTEGATE_POS);
+    bi.tps_pct = s->tps_a;
+    bi.running = (s->state == ECU_RUNNING);
+    bi.sensor_ok = sensors_ok(&e->sens, HAL_ADC_WASTEGATE_POS);
+    boost_update(&e->boost, &e->boost_cfg, &bi);
+    s->wastegate_pct = e->boost.cmd_pct;
+
+    /* ---- pump, fan, lamp, tacho ------------------------------------------ */
+    aux_in_t ai;
+    ai.dt = dt_s;
+    ai.rpm = s->rpm;
+    ai.clt_k = s->clt_k;
+    ai.has_sync = decoder_has_phase(&e->dec);
+    ai.running = (s->state == ECU_RUNNING);
+    ai.faulted = (e->mon.fault != MON_F_NONE) || (s->sensor_faults != 0u)
+              || e->dec.chain_fault;
+    aux_update(&e->aux, &e->aux_cfg, &ai);
+    s->pump_on = e->aux.pump;
+    s->fan_on = e->aux.fan;
 
     decoder_check_timeout(&e->dec, now);
     if (!decoder_has_phase(&e->dec)) {

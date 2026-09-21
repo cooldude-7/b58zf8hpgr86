@@ -46,10 +46,6 @@ KNOWN_UNCALLED_HAL = {
     "hal_crank_set_callback",
     "hal_cam_set_callback",
 
-    # Relay and lamp outputs. Declared with the HAL they belong to;
-    # fuel pump, fan and tacho control is still to be written.
-    "hal_sw_set",
-    "hal_sw_frequency",
 }
 
 # Tuner settings the UI collects that nothing consumes. The root cause is

@@ -137,8 +137,15 @@ software HAL so the whole control path can be compiled and tested on a PC; the
 | `decoder.c` | Crank and cam edges to engine position and cam phase. The only module allowed to say where the engine is, and the only one allowed to say it does not know. |
 | `sched.c` | Angle-domain events to timer compares. Owns the rule that a charging coil always gets to fire. |
 | `model.c` | The torque model, ported from the Python and checked against it. |
+| `sensors.c` | ADC counts to physical units, with a plausibility check and a fallback chosen to fail in the safe direction. |
+| `torque.c` | Pedal and idle to a torque target, and the inverse model back to an air mass and a manifold pressure. |
+| `throttle.c` | Outer pressure loop, inner position loop, dual-sensor disagreement check. |
+| `boost.c` | The wastegate, chasing the same pressure target the throttle does. |
 | `fuel.c` | Charge mass to pulse width, plus the high-pressure pump loop. |
+| `enrich.c` | Cranking, after-start, warmup and acceleration enrichment, and the decel cut. |
+| `lambda.c` | Closed-loop fuel: a short-term PI trim over a long-term trim learned per cell. |
 | `vanos.c` | Cam phaser control. |
+| `aux.c` | Fuel pump, fan, tacho and lamp — including the rule that the pump stops when sync does. |
 | `monitor.c` | Level 2 torque monitor — the safety layer. |
 | `ecu.c` | Four-rate task structure: crank ISR, 1 ms, 10 ms, 100 ms. |
 | `cal.c` / `proto.c` | Calibration storage and the tuner link. |
@@ -209,12 +216,14 @@ that had none.
   over the same protocol the real ECU speaks — `tests/test_serial_link.py` runs
   the actual firmware as a subprocess and drives it down a pipe.
 - The full control path compiles and is tested on a PC: **312 Python tests and
-  11 C suites**.
+  16 C suites**.
 - The firmware **cross-compiles for Cortex-M7** under `-Wall -Wextra -Werror`
   with no double-precision calls.
-- Crank and cam decoding, angle-domain scheduling, the torque model, fuel and
-  pump control, cam phaser control and the Level 2 monitor are all implemented
-  and under test.
+- The whole chain from sensor counts to actuators exists and is under test:
+  crank and cam decoding, angle-domain scheduling, the sensor layer, the torque
+  coordinator and its inverse model, the throttle and wastegate loops, fuel,
+  transient enrichment, closed-loop lambda, the pump, cam phasing, the auxiliary
+  outputs and the Level 2 monitor.
 
 ### What is not real
 
@@ -222,12 +231,13 @@ that had none.
   *link*: there are no interrupt vectors, no linker script, no startup code and
   no clock tree. Those arrive with a board, and inventing them without one
   produces files that look finished and are wrong.
-- **There is no sensor layer.** `hal_adc_read` exists and the control path never
-  calls it, so every measured signal is populated by tests and would be zero on
-  real hardware.
-- **There is no throttle controller.** The ECU can only disable the throttle for
-  limp; nothing positions it.
-- **There is no wastegate or boost control** — only overboost protection.
+- **Every calibration in it is provisional.** The injector short-pulse curve,
+  the dwell table, the sensor transfer functions and all of the loop gains are
+  shaped correctly and sized by judgement. They are the sort of numbers that
+  look finished, which is why each carries a comment saying what would replace
+  it — a flow bench, a current probe, a known pressure.
+- **There is no CAN layer and no calibration storage.** `hal_can_*` and
+  `hal_flash_*` are declared and nothing calls them, so a tune lives in RAM.
 - **The B48 trigger numbers are guesses.** BMW documents confirm the
   architecture but never publish the wheel geometry. `tools/trigger` exists to
   replace them from a scope capture, and `dec_config_t` carries a `measured`
