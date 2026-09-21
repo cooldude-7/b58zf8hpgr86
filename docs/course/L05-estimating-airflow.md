@@ -1,5 +1,10 @@
 # L05 — Estimating airflow
 
+> **[Finding the Air](https://claude.ai/artifact/Pg9ux8q7NxRRUpo8kmoWiQ)** is this lesson and L08 as live
+> instruments: the equation below with its terms moving, and your VE
+> error drawn across the whole operating range. Read either; they say the
+> same thing. If you would rather see it than read it, start there.
+
 ## The problem
 
 Everything in L01 started with the mass of air trapped in the cylinder.

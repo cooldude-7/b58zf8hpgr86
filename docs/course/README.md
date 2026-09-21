@@ -27,6 +27,7 @@ this order and they behave like one.
 |---|---|---|
 | [**Calibration Bench**](https://claude.ai/artifact/LnNL2zyGuDTLqQrn2sx3Vr) | The front door. Tells you which sitting you are on and the one thing to do next, and holds the interactive instruments. | Open this first, every time. |
 | These lectures | The reading. One or two per sitting, named on the bench. | Before the lab. |
+| [**Finding the Air**](https://claude.ai/artifact/Pg9ux8q7NxRRUpo8kmoWiQ) | Sitting 1 as instruments rather than prose, with Lab 1 playable. | Instead of reading L05 and L08, or after them. |
 | The app's **Course** page | The marker. Grades your tune against the engine. | After the lab. |
 | [The slide deck](https://claude.ai/artifact/WnugAPv7dAtp4rK2GLWa1w) | The lecture, for presenting. | Only if you are explaining this to somebody. |
 

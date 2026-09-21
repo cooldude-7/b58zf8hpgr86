@@ -3,6 +3,12 @@
 **Pass mark:** every sampled point within three percent of its lambda
 target.
 
+> **[Finding the Air](https://claude.ai/artifact/Pg9ux8q7NxRRUpo8kmoWiQ)** has this lab playable, against
+> an engine of its own: hold a point, read lambda, scale the cells,
+> watch the error map turn green. Same physics, same 48-point marker,
+> same three percent. Worth ten minutes there before doing it in the
+> app, where one reading takes two seconds to settle.
+
 ## What you are doing
 
 Correcting the VE table until the fuel the ECU calculates matches the
