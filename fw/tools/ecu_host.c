@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "cal.h"
+#include "ecu.h"
 #include "proto.h"
 
 static int load_layout(cal_t *c, const char *path)
@@ -83,6 +84,16 @@ int main(int argc, char **argv)
 
     static proto_t p;
     proto_init(&p, &ram, &flash);
+
+    /* A real ECU, initialised and not running. The channel command reads
+     * its signal block, so what goes down the pipe is the firmware's own
+     * idea of its state rather than numbers invented here -- which is
+     * the whole point of testing the tuner against this binary. Nothing
+     * turns the engine, so the live values are the ones an ECU shows
+     * with the key on and the starter untouched. */
+    static ecu_t ecu;
+    ecu_init(&ecu);
+    proto_set_signals(&p, &ecu.sig);
 
     /* Unbuffered: a tuner waiting on a reply that is sitting in a stdio
      * buffer looks exactly like an ECU that has crashed. */

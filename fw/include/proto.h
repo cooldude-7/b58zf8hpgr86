@@ -18,6 +18,7 @@
 #define TQ_PROTO_H
 
 #include "cal.h"
+#include "chan.h"
 #include "tq_types.h"
 
 #define PROTO_SYNC0 0xA5u
@@ -33,8 +34,23 @@ typedef enum {
     CMD_WRITE_TABLE = 0x05,   /* payload: idx, n_x, n_y, x[], y[], v[] */
     CMD_BURN = 0x06,
     CMD_TABLE_CRC = 0x07,     /* payload: table index */
-    CMD_CHANNELS = 0x08
+    CMD_CHANNELS = 0x08       /* payload: one sub-op byte, below */
 } proto_cmd_t;
+
+/* CMD_CHANNELS carries a sub-op rather than being two commands, because
+ * the list and the values have to come from the same table or the tuner
+ * ends up plotting one firmware's numbers under another's names.
+ *
+ *   CH_OP_DESCRIBE -> count u8, hash u32, count x 16-byte name
+ *   CH_OP_VALUES   -> count u8, hash u32, count x f32
+ *
+ * The hash is in both replies on purpose: a tuner that reconnects to a
+ * reflashed ECU mid-session finds out on the next poll rather than on
+ * the next time someone looks at a gauge and disbelieves it. */
+typedef enum {
+    CH_OP_DESCRIBE = 0x00,
+    CH_OP_VALUES = 0x01
+} proto_chan_op_t;
 
 typedef enum {
     ST_OK = 0x00,
@@ -47,19 +63,27 @@ typedef enum {
     ST_NOT_ALLOWED = 0x07
 } proto_status_t;
 
-struct ecu;
-
 typedef struct {
     u8 buf[PROTO_MAX_PAYLOAD + 16];
     u32 have;
     cal_t *cal;
     cal_t *flash;
+    /* Read-only, and const for the same reason the monitor's inputs are:
+     * the tuner link may watch the engine and may write calibration, and
+     * it may never reach into running state. */
+    const ecu_signals_t *sig;
     u32 frames_ok;
     u32 frames_bad_crc;
     u32 frames_dropped;
 } proto_t;
 
 void proto_init(proto_t *p, cal_t *ram, cal_t *flash);
+
+/* Point the link at the running engine's signals. Without this
+ * CMD_CHANNELS answers ST_NOT_ALLOWED rather than a block of zeroes,
+ * because a gauge reading zero and a gauge reading nothing look the
+ * same on screen and are not the same thing. */
+void proto_set_signals(proto_t *p, const ecu_signals_t *sig);
 
 /* Feed received bytes. Whenever a complete valid frame is decoded, the
  * reply is written to `out` and its length returned; 0 means nothing to

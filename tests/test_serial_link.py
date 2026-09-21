@@ -16,8 +16,9 @@ import numpy as np
 import pytest
 
 from tuner.core.connection import ProtocolError
-from tuner.core.link import (CMD_IDENTIFY, FrameReader, SerialConnection,
-                             crc16, expected_crc, frame)
+from tuner.core.link import (CH_OP_VALUES, CMD_CHANNELS, CMD_IDENTIFY,
+                             FrameReader, SerialConnection, crc16,
+                             expected_crc, frame)
 from tuner.core.tune import default_tune
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,6 +217,97 @@ def test_expected_crc_helper_agrees_with_the_table(tune):
 
 
 # ---- the link misbehaving -------------------------------------------------
+# ---- live channels --------------------------------------------------------
+# The ECU owns the list; the tuner carries no copy of it. That is the only
+# arrangement where a firmware change cannot silently relabel a gauge.
+def test_the_ecu_describes_its_own_channels(ecu):
+    keys = ecu.describe_channels()
+    assert keys, "the ECU described no channels"
+    assert len(set(keys)) == len(keys), "two channels share a name"
+    for expected in ("rpm", "map", "clt", "lambda", "spark", "torque"):
+        assert expected in keys, f"no {expected} channel"
+
+
+def test_polling_returns_a_value_for_every_described_channel(ecu):
+    keys = ecu.describe_channels()
+    ch = ecu.poll_channels()
+    for k in keys:
+        assert k in ch, f"{k} was described and not sent"
+        assert isinstance(ch[k], float)
+        assert ch[k] == ch[k], f"{k} came back NaN"
+
+
+def test_the_values_are_the_firmwares_own_state(ecu):
+    """Nothing here is a number this test invented. ecu_init() sets these,
+    and reading them back proves the channel really is wired to the
+    signal block rather than to a buffer of zeroes."""
+    ch = ecu.poll_channels()
+    assert ch["rpm"] == 0.0, "an engine nobody is cranking is turning"
+    assert ch["state"] == 0.0, "the ECU did not start in its off state"
+    assert ch["batt"] == pytest.approx(13.8, abs=0.01)
+    assert ch["lambda_target"] == pytest.approx(1.0, abs=1e-6)
+    assert ch["rail_target"] == pytest.approx(8000.0, abs=1.0)
+    # Kelvin in the firmware, Celsius on the wire: the conversion belongs
+    # to the ECU because it is the only thing that knows what it stored.
+    assert ch["clt"] == pytest.approx(19.85, abs=0.05)
+    # Absolute pressure in the firmware, gauge psi on a boost gauge.
+    assert ch["boost"] == pytest.approx(-14.7, abs=0.1)
+
+
+def test_a_poll_emits_the_channels_for_the_gauges(ecu):
+    seen = []
+    ecu.channels_updated.connect(seen.append)
+    ecu.poll_channels()
+    assert len(seen) == 1, "the UI would never have been told"
+    assert seen[0]["rpm"] == 0.0
+
+
+def test_channels_are_available_as_soon_as_the_link_is_up(ecu):
+    # connect_ecu() learns the list, so the first gauge refresh does not
+    # have to wait a round trip to find out what it is looking at.
+    assert ecu._chan_keys, "the list was not learned at connect"
+
+
+def test_the_ecu_refuses_a_channel_request_it_does_not_understand(ecu):
+    with pytest.raises(ProtocolError):
+        ecu._exchange(CMD_CHANNELS, bytes([0x7E]))
+    # and the link still works
+    assert ecu.poll_channels()["rpm"] == 0.0
+
+
+def test_a_channel_poll_does_not_disturb_the_table_traffic(ecu, tune):
+    ecu.poll_channels()
+    got = ecu.read_table("ve")
+    assert np.allclose(got, tune.tables["ve"].values, atol=1e-6)
+    ecu.poll_channels()
+    ecu.write_cell("ve", 1, 1, 0.91)
+    assert ecu.read_table("ve")[1][1] == pytest.approx(0.91, abs=1e-6)
+
+
+def test_a_changed_channel_list_is_noticed_rather_than_misread(ecu):
+    """The failure this prevents: a reflashed ECU with one more channel
+    sends the same shaped block, every value lands under the name of its
+    neighbour, and the gauges look fine."""
+    ecu.poll_channels()
+    ecu._chan_hash ^= 0xFFFF
+    with pytest.raises(ProtocolError):
+        ecu.poll_channels()
+    # Having lost confidence in the list, it asks for it again rather
+    # than carrying on with the old one.
+    assert ecu._chan_keys == []
+    assert ecu.poll_channels()["rpm"] == 0.0
+
+
+def test_the_wire_format_is_what_the_firmware_documents(ecu):
+    """Reads the reply without the client code, so a matching bug in
+    both halves of link.py cannot hide."""
+    body = ecu._exchange(CMD_CHANNELS, bytes([CH_OP_VALUES]))
+    count = body[0]
+    assert len(body) == 5 + 4 * count
+    values = struct.unpack(f"<{count}f", body[5:])
+    assert len(values) == count
+
+
 def test_garbage_on_the_wire_does_not_kill_the_link(ecu):
     ecu.stream.write(b"\x00\x11\x22\x33\x44\x55\x66\x77")
     ecu.stream.flush()

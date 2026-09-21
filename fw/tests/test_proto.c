@@ -1,6 +1,8 @@
 /* Framing and command handling, including the ways a link misbehaves. */
+#include <stddef.h>
 #include <string.h>
 
+#include "chan.h"
 #include "proto.h"
 #include "tq_test.h"
 
@@ -204,6 +206,185 @@ int main(void)
         proto_feed(&p, frame, sizeof(frame), out, sizeof(out));
         TQ_CHECK(send(CMD_IDENTIFY, 0, 0) > 0, "link dead after a bad length");
         TQ_PASS("bad length survived");
+    }
+
+    /* ---- live channels ---------------------------------------------- */
+    TQ_CASE("the channel list describes itself");
+    setup();
+    {
+        /* Without a signal block the command answers a status rather
+         * than a block of zeroes. A gauge reading zero and a gauge
+         * reading nothing look identical on screen and are not the
+         * same thing. */
+        u8 op = CH_OP_VALUES;
+        TQ_CHECK(send(CMD_CHANNELS, &op, 1) > 0, "no reply");
+        TQ_CHECK(out[5] == ST_NOT_ALLOWED,
+                 "answered %d with no signals attached", out[5]);
+
+        static ecu_signals_t sig;
+        memset(&sig, 0, sizeof(sig));
+        proto_set_signals(&p, &sig);
+
+        op = CH_OP_DESCRIBE;
+        u32 n = send(CMD_CHANNELS, &op, 1);
+        TQ_CHECK(n > 0, "no reply to describe");
+        TQ_CHECK(out[5] == ST_OK, "status %d", out[5]);
+        u8 count = out[6];
+        TQ_CHECK(count == chan_count(), "described %u of %u channels",
+                 count, chan_count());
+        u32 hash;
+        memcpy(&hash, out + 7, 4);
+        TQ_CHECK(hash == chan_hash(), "hash does not match the table");
+        TQ_CHECK(hash != 0, "a hash of zero cannot detect anything");
+        TQ_CHECK(n == 7u + 4u + (u32)count * CHAN_NAME_LEN + 2u,
+                 "describe reply is %u bytes for %u channels", n, count);
+
+        /* Every name arrives NUL terminated inside its field, so the
+         * tuner indexes rather than parses, and no two are the same --
+         * a duplicate would put two signals on one gauge. */
+        for (u8 i = 0; i < count; i++) {
+            const u8 *ni = out + 11 + (u32)i * CHAN_NAME_LEN;
+            TQ_CHECK(ni[CHAN_NAME_LEN - 1] == 0,
+                     "channel %u name fills its field with no terminator", i);
+            TQ_CHECK(ni[0] != 0, "channel %u has an empty name", i);
+            TQ_CHECK(!strncmp((const char *)ni, chan_at(i)->key, CHAN_NAME_LEN),
+                     "channel %u is named %s on the wire and %s in the table",
+                     i, (const char *)ni, chan_at(i)->key);
+            for (u8 j = (u8)(i + 1); j < count; j++) {
+                const u8 *nj = out + 11 + (u32)j * CHAN_NAME_LEN;
+                TQ_CHECK(strncmp((const char *)ni, (const char *)nj,
+                                 CHAN_NAME_LEN) != 0,
+                         "channels %u and %u are both called %s", i, j,
+                         (const char *)ni);
+            }
+            if (tq_fails) break;
+        }
+        TQ_PASS("describe");
+    }
+
+    TQ_CASE("channel values are the signals, in the units the name implies");
+    setup();
+    {
+        static ecu_signals_t sig;
+        memset(&sig, 0, sizeof(sig));
+        sig.rpm = 3450.0f;
+        sig.map_kpa = 158.0f;
+        sig.clt_k = 361.15f;             /* 88 C */
+        sig.iat_k = 304.15f;             /* 31 C */
+        sig.pw_us = 4250u;               /* 4.25 ms */
+        sig.state = ECU_RUNNING;
+        sig.pump_on = true;
+        sig.fan_on = false;
+        sig.n_pulses = 2;
+        proto_set_signals(&p, &sig);
+
+        u8 op = CH_OP_VALUES;
+        u32 n = send(CMD_CHANNELS, &op, 1);
+        TQ_CHECK(out[5] == ST_OK, "status %d", out[5]);
+        u8 count = out[6];
+        TQ_CHECK(n == 7u + 4u + (u32)count * 4u + 2u,
+                 "values reply is %u bytes for %u channels", n, count);
+
+        for (u8 i = 0; i < count; i++) {
+            f32 v;
+            memcpy(&v, out + 11 + (u32)i * 4u, 4);
+            const char *k = chan_at(i)->key;
+            TQ_NEAR(v, chan_value(&sig, i), 1e-6,
+                    "channel %s went down the wire wrong", k);
+            /* Spot-check the conversions themselves. A gauge in the
+             * wrong unit is the kind of thing that reads plausibly
+             * for a whole session. */
+            if (!strcmp(k, "rpm"))   TQ_NEAR(v, 3450.0f, 1e-3, "rpm");
+            if (!strcmp(k, "map"))   TQ_NEAR(v, 158.0f, 1e-3, "map");
+            if (!strcmp(k, "boost")) TQ_NEAR(v, 8.22f, 0.02f,
+                                             "158 kPa absolute is 8.2 psi of "
+                                             "boost, got %.2f", (double)v);
+            if (!strcmp(k, "clt"))   TQ_NEAR(v, 88.0f, 0.05f, "coolant in C");
+            if (!strcmp(k, "iat"))   TQ_NEAR(v, 31.0f, 0.05f, "intake in C");
+            if (!strcmp(k, "pw_ms")) TQ_NEAR(v, 4.25f, 1e-3, "pulse width in ms");
+            if (!strcmp(k, "state")) TQ_NEAR(v, (f32)ECU_RUNNING, 1e-6, "state");
+            if (!strcmp(k, "pump"))  TQ_NEAR(v, 1.0f, 1e-6, "a bool reads 1");
+            if (!strcmp(k, "fan"))   TQ_NEAR(v, 0.0f, 1e-6, "a bool reads 0");
+            if (!strcmp(k, "inj_pulses")) TQ_NEAR(v, 2.0f, 1e-6, "pulse count");
+            if (tq_fails) break;
+        }
+        TQ_PASS("values");
+    }
+
+    TQ_CASE("every channel reads its own field");
+    setup();
+    {
+        /* The failure this catches is a mistyped offsetof: the channel
+         * still reports a number, the number is plausible, and it
+         * belongs to a different signal. Walk the table, poke a marker
+         * into each field through its own descriptor, and read it back
+         * through the public path. */
+        static ecu_signals_t sig;
+        for (u8 i = 0; i < chan_count(); i++) {
+            const chan_desc_t *d = chan_at(i);
+            u32 size = d->type == CH_F32 || d->type == CH_I32
+                    || d->type == CH_U32 ? 4u
+                     : d->type == CH_U16 ? 2u : 1u;
+            TQ_CHECK((u32)d->off + size <= sizeof(sig),
+                     "channel %s points %u bytes past the signal block",
+                     d->key, (u32)d->off + size - (u32)sizeof(sig));
+            if (tq_fails) break;
+
+            memset(&sig, 0, sizeof(sig));
+            u8 *field = (u8 *)&sig + d->off;
+            f32 raw = 0.0f;
+            switch (d->type) {
+            case CH_F32:  { f32 v = 12.5f; memcpy(field, &v, 4); raw = v; break; }
+            case CH_I32:  { int v = 3; memcpy(field, &v, 4); raw = 3.0f; break; }
+            case CH_U32:  { u32 v = 7u; memcpy(field, &v, 4); raw = 7.0f; break; }
+            case CH_U16:  { u16 v = 9u; memcpy(field, &v, 2); raw = 9.0f; break; }
+            case CH_U8:   { u8 v = 5u; memcpy(field, &v, 1); raw = 5.0f; break; }
+            case CH_BOOL: { bool v = true; memcpy(field, &v, 1); raw = 1.0f; break; }
+            default: TQ_CHECK(0, "channel %s has type %u", d->key, d->type);
+            }
+            TQ_NEAR(chan_value(&sig, i), raw * d->scale + d->bias, 1e-4,
+                    "channel %s does not read the field it points at", d->key);
+            if (tq_fails) break;
+        }
+        TQ_PASS("offsets");
+    }
+
+    TQ_CASE("a malformed channel request is refused");
+    setup();
+    {
+        static ecu_signals_t sig;
+        memset(&sig, 0, sizeof(sig));
+        proto_set_signals(&p, &sig);
+
+        TQ_CHECK(send(CMD_CHANNELS, 0, 0) > 0, "no reply to an empty payload");
+        TQ_CHECK(out[5] == ST_BAD_LEN, "empty payload answered %d", out[5]);
+
+        u8 two[2] = { CH_OP_VALUES, CH_OP_VALUES };
+        TQ_CHECK(send(CMD_CHANNELS, two, 2) > 0, "no reply to a long payload");
+        TQ_CHECK(out[5] == ST_BAD_LEN, "long payload answered %d", out[5]);
+
+        u8 op = 0x7E;
+        TQ_CHECK(send(CMD_CHANNELS, &op, 1) > 0, "no reply to a bad sub-op");
+        TQ_CHECK(out[5] == ST_BAD_VALUE, "bad sub-op answered %d", out[5]);
+
+        /* And the link still works afterwards. */
+        op = CH_OP_VALUES;
+        TQ_CHECK(send(CMD_CHANNELS, &op, 1) > 0, "link dead after a refusal");
+        TQ_CHECK(out[5] == ST_OK, "status %d", out[5]);
+        TQ_PASS("malformed requests");
+    }
+
+    TQ_CASE("a channel reply survives being dribbled in");
+    setup();
+    {
+        static ecu_signals_t sig;
+        memset(&sig, 0, sizeof(sig));
+        sig.rpm = 1234.0f;
+        proto_set_signals(&p, &sig);
+        u8 op = CH_OP_DESCRIBE;
+        TQ_CHECK(send_dribbled(CMD_CHANNELS, &op, 1) > 0, "no reply");
+        TQ_CHECK(out[5] == ST_OK, "status %d", out[5]);
+        TQ_PASS("dribbled");
     }
 
     TQ_CASE("an unknown command is answered, not ignored");

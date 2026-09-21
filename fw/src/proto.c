@@ -21,6 +21,11 @@ void proto_init(proto_t *p, cal_t *ram, cal_t *flash)
     p->flash = flash;
 }
 
+void proto_set_signals(proto_t *p, const ecu_signals_t *sig)
+{
+    p->sig = sig;
+}
+
 u32 proto_frame(u8 cmd, const u8 *payload, u32 len, u8 *out, u32 out_cap)
 {
     if (len > PROTO_MAX_PAYLOAD || out_cap < len + 7u) {
@@ -198,6 +203,44 @@ static u32 handle(proto_t *p, u8 cmd, const u8 *pl, u32 len,
             n += 4;
         }
         return reply(cmd, ST_OK, body, n, out, out_cap);
+    }
+
+    case CMD_CHANNELS: {
+        if (len != 1) return reply(cmd, ST_BAD_LEN, 0, 0, out, out_cap);
+        if (!p->sig) return reply(cmd, ST_NOT_ALLOWED, 0, 0, out, out_cap);
+        u8 n = chan_count();
+        u32 hash = chan_hash();
+        u32 k = 0;
+        body[k++] = n;
+        memcpy(body + k, &hash, 4);
+        k += 4;
+
+        if (pl[0] == CH_OP_DESCRIBE) {
+            if (k + (u32)n * CHAN_NAME_LEN > sizeof(body))
+                return reply(cmd, ST_BAD_LEN, 0, 0, out, out_cap);
+            for (u8 i = 0; i < n; i++) {
+                const chan_desc_t *d = chan_at(i);
+                /* Fixed width and zero filled, so the tuner indexes
+                 * instead of parsing. A name too long for the field is
+                 * a firmware bug, and truncating it would make two
+                 * channels collide silently. */
+                memset(body + k, 0, CHAN_NAME_LEN);
+                u32 klen = (u32)strlen(d->key);
+                if (klen > CHAN_NAME_LEN) klen = CHAN_NAME_LEN;
+                memcpy(body + k, d->key, klen);
+                k += CHAN_NAME_LEN;
+            }
+        } else if (pl[0] == CH_OP_VALUES) {
+            if (k + (u32)n * 4u > sizeof(body))
+                return reply(cmd, ST_BAD_LEN, 0, 0, out, out_cap);
+            for (u8 i = 0; i < n; i++) {
+                put_f32(body + k, chan_value(p->sig, i));
+                k += 4;
+            }
+        } else {
+            return reply(cmd, ST_BAD_VALUE, 0, 0, out, out_cap);
+        }
+        return reply(cmd, ST_OK, body, k, out, out_cap);
     }
 
     case CMD_TABLE_CRC: {

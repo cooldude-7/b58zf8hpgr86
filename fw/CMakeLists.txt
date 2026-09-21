@@ -31,6 +31,7 @@ add_library(tqcore STATIC
     src/aux.c
     src/ecu.c
     src/cal.c
+    src/chan.c
     src/proto.c
 )
 target_include_directories(tqcore PUBLIC include)
@@ -43,7 +44,8 @@ target_link_libraries(tqhal_host PUBLIC tqcore)
 # The firmware running on a PC, speaking the tuner protocol on stdio.
 # tests/test_serial_link.py drives the real tuner against this.
 add_executable(ecu_host tools/ecu_host.c)
-target_link_libraries(ecu_host PRIVATE tqcore)
+target_include_directories(ecu_host PRIVATE hal)
+target_link_libraries(ecu_host PRIVATE tqcore tqhal_host)
 
 enable_testing()
 

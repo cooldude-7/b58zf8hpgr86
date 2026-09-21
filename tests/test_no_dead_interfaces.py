@@ -22,10 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 # Protocol commands declared in proto.h with no case in proto.c.
-KNOWN_UNHANDLED_COMMANDS = {
-    "CMD_CHANNELS",   # live data streaming; the Pi dash and real-hardware
-                      # gauges both need it. Tracked.
-}
+KNOWN_UNHANDLED_COMMANDS = set()
 
 # HAL entry points the control path never calls. This list only shrinks:
 # hal_adc_read left it when the sensor layer landed, and the test fails if

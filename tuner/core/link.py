@@ -25,6 +25,11 @@ CMD_WRITE_CELL = 0x04
 CMD_WRITE_TABLE = 0x05
 CMD_BURN = 0x06
 CMD_TABLE_CRC = 0x07
+CMD_CHANNELS = 0x08
+
+CH_OP_DESCRIBE = 0x00
+CH_OP_VALUES = 0x01
+CHAN_NAME_LEN = 16
 
 STATUS = {
     0x00: "ok",
@@ -114,6 +119,8 @@ class SerialConnection(ECUConnection):
         self._keys = list(table_keys) if table_keys else []
         self._index = {}
         self._desc = {}
+        self._chan_keys = []
+        self._chan_hash = 0
 
     # -- transport ------------------------------------------------------
     def _exchange(self, cmd: int, payload: bytes = b"") -> bytes:
@@ -167,6 +174,7 @@ class SerialConnection(ECUConnection):
                 f"ECU speaks protocol version {ident['protocol_version']}, "
                 f"this tuner speaks {VERSION}")
         self._load_layout(ident["n_tables"])
+        self.describe_channels()
         super().connect_ecu()
 
     def identify(self) -> dict:
@@ -248,6 +256,52 @@ class SerialConnection(ECUConnection):
     def table_crc(self, key: str) -> int:
         body = self._exchange(CMD_TABLE_CRC, bytes([self._idx(key)]))
         return struct.unpack("<I", body[:4])[0]
+
+    # -- live data ------------------------------------------------------
+    # The ECU owns the channel list. The tuner asks for it at connect and
+    # keeps the order it was given, because the values come back as a
+    # bare block of floats indexed by that order -- which is also why the
+    # hash is checked on every poll. A firmware that gained a channel
+    # would otherwise shift every gauge one place to the left and look
+    # entirely plausible doing it.
+    def describe_channels(self) -> list:
+        body = self._exchange(CMD_CHANNELS, bytes([CH_OP_DESCRIBE]))
+        if len(body) < 5:
+            raise ProtocolError("truncated channel list")
+        count = body[0]
+        self._chan_hash = struct.unpack("<I", body[1:5])[0]
+        want = 5 + count * CHAN_NAME_LEN
+        if len(body) < want:
+            raise ProtocolError(
+                f"the ECU described {count} channels and sent "
+                f"{(len(body) - 5) // CHAN_NAME_LEN}")
+        keys = []
+        for i in range(count):
+            off = 5 + i * CHAN_NAME_LEN
+            name = body[off:off + CHAN_NAME_LEN].split(b"\x00")[0]
+            keys.append(name.decode("ascii", "replace"))
+        self._chan_keys = keys
+        return list(keys)
+
+    def poll_channels(self) -> dict:
+        if not self._chan_keys:
+            self.describe_channels()
+        body = self._exchange(CMD_CHANNELS, bytes([CH_OP_VALUES]))
+        if len(body) < 5:
+            raise ProtocolError("truncated channel reply")
+        count = body[0]
+        hash_ = struct.unpack("<I", body[1:5])[0]
+        if count != len(self._chan_keys) or hash_ != self._chan_hash:
+            # Not recoverable by reading it anyway: these values belong
+            # to a channel list this tuner has never seen.
+            self._chan_keys = []
+            raise ProtocolError(
+                "the ECU's channel list changed under the connection")
+        values = np.frombuffer(body, dtype="<f4", count=count,
+                               offset=5).astype(float)
+        self._channels.update(dict(zip(self._chan_keys, values.tolist())))
+        self.channels_updated.emit(self.channels())
+        return self.channels()
 
     def burn(self) -> dict:
         body = self._exchange(CMD_BURN)

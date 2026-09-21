@@ -148,7 +148,7 @@ software HAL so the whole control path can be compiled and tested on a PC; the
 | `aux.c` | Fuel pump, fan, tacho and lamp — including the rule that the pump stops when sync does. |
 | `monitor.c` | Level 2 torque monitor — the safety layer. |
 | `ecu.c` | Four-rate task structure: crank ISR, 1 ms, 10 ms, 100 ms. |
-| `cal.c` / `proto.c` | Calibration storage and the tuner link. |
+| `cal.c` / `proto.c` / `chan.c` | Calibration storage, the tuner link, and the live channel list the tuner reads its gauges from. |
 | `hal/oc_core.c` | Output-compare scheduling as logic, separate from register writes, so the part that decides when a coil stops charging is testable. |
 
 ### Rules the firmware keeps
@@ -215,7 +215,7 @@ that had none.
 - The tuner application runs, loads and saves tunes, and talks to the simulator
   over the same protocol the real ECU speaks — `tests/test_serial_link.py` runs
   the actual firmware as a subprocess and drives it down a pipe.
-- The full control path compiles and is tested on a PC: **312 Python tests and
+- The full control path compiles and is tested on a PC: **321 Python tests and
   16 C suites**.
 - The firmware **cross-compiles for Cortex-M7** under `-Wall -Wextra -Werror`
   with no double-precision calls.
