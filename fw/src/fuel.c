@@ -10,7 +10,60 @@ tq_injector_t tq_injector_default(void)
     i.deadtime_ms = 0.90f;
     i.deadtime_slope_ms_v = -0.09f;   /* dead time grows as voltage falls */
     i.min_pulse_ms = 0.35f;
+    /* PROVISIONAL, and this one genuinely needs a flow bench: the shape
+     * of the short-pulse region is specific to an injector, and copying
+     * another injector's numbers is worse than having none, because it
+     * looks calibrated. The trend is right -- the correction grows as the
+     * commanded pulse shrinks -- and the magnitudes are a placeholder. */
+    const f32 bp[TQ_SMALL_PW_N]  = { 400.0f, 600.0f, 900.0f, 1400.0f,
+                                     2000.0f, 3000.0f };
+    const f32 add[TQ_SMALL_PW_N] = { 260.0f, 170.0f,  95.0f,   40.0f,
+                                      12.0f,   0.0f };
+    for (u32 k = 0; k < TQ_SMALL_PW_N; k++) {
+        i.small_pw_us[k] = bp[k];
+        i.small_add_us[k] = add[k];
+    }
     return i;
+}
+
+u32 tq_small_pulse_us(u32 pw_us, const tq_injector_t *inj)
+{
+    if (pw_us == 0u) {
+        return 0u;
+    }
+    /* Flat at the bottom end would be wrong here: below the first
+     * breakpoint the correction should not keep growing, because the
+     * injector is not opening at all down there and more time does not
+     * buy proportionally more fuel. tq_interp() holds the first value,
+     * which is the conservative reading. */
+    f32 add = tq_interp(inj->small_pw_us, inj->small_add_us,
+                     TQ_SMALL_PW_N, (f32)pw_us);
+    if (add < 0.0f) add = 0.0f;
+    return pw_us + (u32)(add + 0.5f);
+}
+
+tq_dwell_t tq_dwell_default(void)
+{
+    /* Coil charge time against supply voltage. The shape is the
+     * important part: roughly inverse, and steep at the bottom, which is
+     * why cranking at 9 V needs nearly twice the dwell of a running
+     * engine at 14 V. PROVISIONAL until measured with a current probe on
+     * the real coil. */
+    tq_dwell_t d;
+    const f32 v[TQ_DWELL_N]  = {  8.0f, 10.0f, 12.0f, 14.0f, 16.0f };
+    const f32 ms[TQ_DWELL_N] = { 5.20f, 3.90f, 3.00f, 2.40f, 2.00f };
+    for (u32 k = 0; k < TQ_DWELL_N; k++) {
+        d.volts[k] = v[k];
+        d.dwell_ms[k] = ms[k];
+    }
+    return d;
+}
+
+u32 tq_dwell_us(const tq_dwell_t *d, f32 battery_v)
+{
+    f32 ms = tq_interp(d->volts, d->dwell_ms, TQ_DWELL_N, battery_v);
+    if (ms < 0.2f) ms = 0.2f;
+    return (u32)(ms * 1000.0f);
 }
 
 f32 tq_fuel_mass(f32 air_g, f32 lambda_target, const tq_engine_t *e)
@@ -46,7 +99,10 @@ u32 tq_pulse_width_us(f32 fuel_g, f32 rail_kpa, f32 cylinder_kpa,
     if (open_ms < inj->min_pulse_ms) {
         return 0;
     }
-    return (u32)((open_ms + dead) * 1000.0f);
+    /* The short-pulse correction is applied to the COMMANDED width,
+     * which is the open time plus dead time -- that is what the driver
+     * is actually told to do and what the injector responds to. */
+    return tq_small_pulse_us((u32)((open_ms + dead) * 1000.0f), inj);
 }
 
 f32 tq_injector_duty(u32 pw_us, f32 rpm, f32 window_deg)

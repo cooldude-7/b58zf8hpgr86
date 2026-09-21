@@ -13,13 +13,48 @@
 
 #define TQ_FUEL_DENSITY_G_CC 0.745f      /* petrol at 15 C */
 
+/* How many breakpoints the short-pulse correction carries. Small,
+ * because the region it describes is small: everything above a
+ * millisecond or so is linear and needs no table at all. */
+#define TQ_SMALL_PW_N 6
+
 typedef struct {
     f32 flow_cc_min;         /* static flow at rated pressure */
     f32 rated_dp_kpa;        /* the pressure drop that rating was taken at */
     f32 deadtime_ms;         /* at 13.8 V */
     f32 deadtime_slope_ms_v; /* how dead time grows as voltage falls */
     f32 min_pulse_ms;        /* below this the injector is not linear */
+
+    /* Short-pulse correction. Near the bottom of its range an injector
+     * does not fully open, so a 0.4 ms command delivers proportionally
+     * far less fuel than a 4 ms one. Without this the engine is lean at
+     * idle and cruise while being perfectly calibrated at load -- which
+     * reads as a VE table problem, sends the tuner off to fix the wrong
+     * surface, and stays wrong.
+     *
+     * Additive microseconds, interpolated between breakpoints, zero
+     * above the last one. These come from a flow bench, not a guess. */
+    f32 small_pw_us[TQ_SMALL_PW_N];    /* ascending commanded widths */
+    f32 small_add_us[TQ_SMALL_PW_N];   /* what to add at each */
 } tq_injector_t;
+
+/* Coil dwell against supply voltage.
+ *
+ * Charge time to reach a given coil current depends on supply voltage,
+ * so a fixed dwell undercharges the coil exactly when the battery is
+ * lowest -- during cranking, which is when a good spark matters most and
+ * when a weak one reads as "it just will not start". Lives here with the
+ * injector dead-time compensation because it is the same idea: what an
+ * actuator needs in order to do the same thing at a different voltage. */
+#define TQ_DWELL_N 5
+
+typedef struct {
+    f32 volts[TQ_DWELL_N];   /* ascending */
+    f32 dwell_ms[TQ_DWELL_N];
+} tq_dwell_t;
+
+tq_dwell_t tq_dwell_default(void);
+u32 tq_dwell_us(const tq_dwell_t *d, f32 battery_v);
 
 tq_injector_t tq_injector_default(void);
 
@@ -31,6 +66,11 @@ f32 tq_fuel_mass(f32 air_g, f32 lambda_target, const tq_engine_t *e);
  * fuelling error unless it is compensated here. */
 u32 tq_pulse_width_us(f32 fuel_g, f32 rail_kpa, f32 cylinder_kpa,
                       f32 battery_v, const tq_injector_t *inj);
+
+/* The commanded width after the short-pulse correction. Applied inside
+ * tq_pulse_width_us; exposed so a test and a tuner can see the size of
+ * the correction rather than only its effect. */
+u32 tq_small_pulse_us(u32 pw_us, const tq_injector_t *inj);
 
 /* Duty against the crank window injection can actually use, not against
  * the whole cycle. Measuring a direct injector against 720 degrees makes

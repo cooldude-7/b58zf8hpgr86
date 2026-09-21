@@ -47,6 +47,24 @@ static inline f32 tq_clampf(f32 v, f32 lo, f32 hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/* Linear interpolation over an ASCENDING breakpoint table, held flat
+ * outside it at both ends rather than extrapolated. Extrapolating a
+ * calibration table off its end is how a sensor reading slightly beyond
+ * what anyone measured becomes a fuelling number nobody chose. */
+static inline f32 tq_interp(const f32 *x, const f32 *y, u32 n, f32 at)
+{
+    if (n == 0u) return 0.0f;
+    if (at <= x[0]) return y[0];
+    for (u32 k = 1u; k < n; k++) {
+        if (at <= x[k]) {
+            f32 span = x[k] - x[k - 1u];
+            if (span < 1e-6f) return y[k];
+            return y[k - 1u] + (y[k] - y[k - 1u]) * (at - x[k - 1u]) / span;
+        }
+    }
+    return y[n - 1u];
+}
+
 /* Angle arithmetic, always wrapped into [0, 720). */
 static inline f32 tq_wrap_deg(f32 a)
 {

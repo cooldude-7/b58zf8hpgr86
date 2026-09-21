@@ -20,6 +20,10 @@ void ecu_init(ecu_t *e)
     e->coord_cfg = tq_coord_config_default();
     tq_coord_init(&e->coord, &e->coord_cfg);
     e->thr_cfg = thr_config_default();
+    e->enr_cfg = enr_config_default();
+    enrich_init(&e->enr);
+    e->lam_cfg = lam_config_default();
+    lambda_init(&e->lam, &e->lam_cfg);
     throttle_init(&e->thr, &e->thr_cfg);
     van_config_t vcfg = vanos_config_default();
     vanos_init(&e->van, &vcfg);
@@ -37,6 +41,7 @@ void ecu_init(ecu_t *e)
     e->inj_drive.recharge_us = 300;
     e->engine = tq_engine_default();
     e->injector = tq_injector_default();
+    e->dwell = tq_dwell_default();
     e->rev_limit = 7200.0f;
     e->overboost_kpa = 265.0f;
     e->max_cut_retard = 35.0f;
@@ -209,8 +214,25 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
                                        s->rpm, spark, s->mbt_deg,
                                        s->lambda_meas, &e->engine);
 
+    /* ---- transient fuel corrections ------------------------------------ */
+    /* The steady-state model says what is in the cylinder. These say how
+     * much of what is injected will be there to burn, which on a cold or
+     * rapidly changing engine is a very different number. */
+    enr_in_t ei;
+    ei.dt = dt_s;
+    ei.rpm = s->rpm;
+    ei.clt_k = s->clt_k;
+    ei.map_kpa = s->map_kpa;
+    ei.tps_pct = s->tps_a;
+    ei.cranking = (s->state == ECU_CRANKING);
+    ei.running = (s->state == ECU_RUNNING);
+    enrich_update(&e->enr, &e->enr_cfg, &ei);
+    s->enrich_mult = e->enr.total;
+    s->decel_cut = e->enr.fuel_cut;
+
     /* ---- fuel ---------------------------------------------------------- */
-    f32 fuel_g = tq_fuel_mass(s->air_g, s->lambda_target, &e->engine);
+    f32 fuel_g = tq_fuel_mass(s->air_g, s->lambda_target, &e->engine)
+               * e->enr.total * e->lam.total;
     s->pw_us = tq_pulse_width_us(fuel_g, s->rail_kpa, s->map_kpa,
                                  s->battery_v, &e->injector);
 
@@ -219,7 +241,12 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     s->boost_low = hal_inj_boost_voltage() < (u16)(e->inj_drive.boost_v * 8 / 10);
 
     /* ---- hard limits --------------------------------------------------- */
-    e->fuel_cut = (s->rpm > e->rev_limit) || (s->map_kpa > e->overboost_kpa);
+    /* Two different cuts that happen to share an actuator. The hard
+     * limits protect the engine; the decel cut is driveability and
+     * emissions. Keeping them separate matters because one of them is
+     * allowed to have hysteresis and the other is not. */
+    e->fuel_cut = (s->rpm > e->rev_limit) || (s->map_kpa > e->overboost_kpa)
+               || e->enr.fuel_cut;
     e->spark_cut = false;
 
     /* ---- Level 2 ------------------------------------------------------- */
@@ -257,7 +284,11 @@ void ecu_fast_task(ecu_t *e, f32 dt_s)
     /* ---- hand the scheduler its numbers -------------------------------- */
     u32 total_pw = e->fuel_cut ? 0u : s->pw_us;
     for (u8 c = 0; c < e->sch.n_cyl; c++) {
-        sched_set_spark(&e->sch, c, spark, (u32)(e->engine_dwell_ms * 1000.0f));
+        /* Dwell against the measured supply, not a constant. A fixed
+         * dwell undercharges the coil during cranking, which is exactly
+         * when the battery is lowest and a weak spark reads as "it will
+         * not start". */
+        sched_set_spark(&e->sch, c, spark, tq_dwell_us(&e->dwell, s->battery_v));
         if (s->n_pulses >= 2 && s->split_first > 0.01f && total_pw > 0) {
             /* Split the charge: a pilot early for mixing, the rest
              * behind it. The gap has to clear the injector's recharge
@@ -326,6 +357,27 @@ void ecu_slow_task(ecu_t *e, f32 dt_s)
     for (u8 i = 0; i < VAN_N_CAM; i++) {
         s->vanos_fault[i] = e->van.cam[i].fault;
     }
+
+    /* ---- closed-loop fuel ---------------------------------------------- */
+    /* In the 10 ms task because the sensor and the exhaust transport
+     * delay are both far slower than 1 ms, and running it faster would
+     * only integrate against gas that has not arrived yet. */
+    lam_in_t li;
+    li.dt = dt_s;
+    li.lambda_meas = s->lambda_meas;
+    li.lambda_target = s->lambda_target;
+    li.rpm = s->rpm;
+    li.load_kpa = s->map_kpa;
+    li.clt_k = s->clt_k;
+    li.sensor_ok = sensors_ok(&e->sens, HAL_ADC_LAMBDA);
+    /* Do not learn from a transient. During acceleration enrichment the
+     * mixture is deliberately off target, and a loop that trims it away
+     * would be fighting a correction that exists on purpose. */
+    li.inhibit = e->fuel_cut || (e->enr.accel > 1.02f)
+              || (s->state != ECU_RUNNING);
+    lambda_update(&e->lam, &e->lam_cfg, &li);
+    s->lambda_trim = e->lam.total;
+    s->lambda_closed = e->lam.closed;
 
     decoder_check_timeout(&e->dec, now);
     if (!decoder_has_phase(&e->dec)) {

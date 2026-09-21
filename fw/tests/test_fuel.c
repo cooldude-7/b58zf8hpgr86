@@ -22,15 +22,65 @@ int main(void)
     TQ_CASE("pulse width falls as rail pressure rises");
     {
         /* pressure DROP of 2500 and 10000 kPa: exactly four times, which
-         * under a square-root flow law should halve the open time */
-        u32 low = tq_pulse_width_us(0.03f, 3000.0f, 500.0f, 13.8f, &inj);
-        u32 high = tq_pulse_width_us(0.03f, 10500.0f, 500.0f, 13.8f, &inj);
+         * under a square-root flow law should halve the open time.
+         *
+         * A deliberately large charge, so both pulses land well clear of
+         * the short-pulse correction region. That correction is real and
+         * is tested on its own below; mixing it in here would be testing
+         * two things at once and concluding nothing about either. */
+        u32 low = tq_pulse_width_us(0.30f, 3000.0f, 500.0f, 13.8f, &inj);
+        u32 high = tq_pulse_width_us(0.30f, 10500.0f, 500.0f, 13.8f, &inj);
         TQ_CHECK(high < low, "more pressure should need less time (%u vs %u)",
                  high, low);
         f32 dead = inj.deadtime_ms * 1000.0f;
         TQ_NEAR(((f32)high - dead) * 2.0f, ((f32)low - dead), (f32)low * 0.02f,
                 "sqrt law");
         TQ_PASS("rail pressure compensation");
+    }
+
+    TQ_CASE("short pulses are corrected, long ones are left alone");
+    {
+        /* Near the bottom of its range an injector does not fully open,
+         * so a short command delivers proportionally less fuel. Without
+         * this the engine is lean at idle and cruise while perfectly
+         * calibrated at load -- which reads as a VE problem and sends
+         * the tuner to fix the wrong surface. */
+        u32 tiny = tq_small_pulse_us(400u, &inj);
+        u32 mid = tq_small_pulse_us(1400u, &inj);
+        u32 big = tq_small_pulse_us(6000u, &inj);
+        TQ_CHECK(tiny > 400u, "a 400 us command got no correction");
+        TQ_CHECK(mid > 1400u, "a 1400 us command got no correction");
+        TQ_CHECK(big == 6000u, "a 6 ms command was corrected (%u)", big);
+        TQ_CHECK((tiny - 400u) > (mid - 1400u),
+                 "the correction should grow as the pulse shrinks "
+                 "(%u vs %u)", tiny - 400u, mid - 1400u);
+        TQ_CHECK(tq_small_pulse_us(0u, &inj) == 0u,
+                 "corrected a zero pulse into a real one, which would "
+                 "inject fuel during a fuel cut");
+        TQ_PASS("short-pulse nonlinearity");
+    }
+
+    TQ_CASE("dwell grows as the battery falls");
+    {
+        /* The failure this prevents is specific: a fixed dwell
+         * undercharges the coil during cranking, which is exactly when
+         * the battery is lowest and when a weak spark reads as "it just
+         * will not start". */
+        tq_dwell_t d = tq_dwell_default();
+        u32 cranking = tq_dwell_us(&d, 9.0f);
+        u32 running = tq_dwell_us(&d, 14.0f);
+        TQ_CHECK(cranking > running,
+                 "cranking dwell %u us is not longer than running %u us",
+                 cranking, running);
+        TQ_CHECK(cranking > running * 3u / 2u,
+                 "the compensation is too small to matter (%u vs %u)",
+                 cranking, running);
+        /* Flat outside the table rather than extrapolating off a cliff. */
+        TQ_CHECK(tq_dwell_us(&d, 2.0f) == tq_dwell_us(&d, 8.0f),
+                 "extrapolated below the table");
+        TQ_CHECK(tq_dwell_us(&d, 30.0f) == tq_dwell_us(&d, 16.0f),
+                 "extrapolated above the table");
+        TQ_PASS("dwell voltage compensation");
     }
 
     TQ_CASE("cylinder pressure is subtracted, not ignored");

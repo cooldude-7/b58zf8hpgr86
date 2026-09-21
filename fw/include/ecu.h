@@ -23,6 +23,8 @@
 #include "model.h"
 #include "monitor.h"
 #include "sched.h"
+#include "enrich.h"
+#include "lambda.h"
 #include "sensors.h"
 #include "throttle.h"
 #include "torque.h"
@@ -56,6 +58,10 @@ typedef struct {
      * loop must not integrate against a frozen number. vanos_fault is
      * reported, never acted on here: a cam that cannot find its target
      * is not a reason to stop fuelling the engine. */
+    f32 enrich_mult;         /* cranking x after-start x warmup x accel */
+    f32 lambda_trim;         /* long term x short term */
+    bool decel_cut;
+    bool lambda_closed;
     f32 map_target_kpa;      /* what the torque path asked the air for */
     f32 idle_target_rpm;
     u16 sensor_faults;
@@ -77,12 +83,17 @@ typedef struct {
     tq_coord_config_t coord_cfg;
     throttle_t thr;
     thr_config_t thr_cfg;
+    enrich_t enr;
+    enr_config_t enr_cfg;
+    lambda_t lam;
+    lam_config_t lam_cfg;
     f32 cam_target[VAN_N_CAM];   /* commanded advance; a cal table later */
     tq_hpfp_t hpfp;
     tq_hpfp_sched_t hpfp_sched;
     hal_inj_drive_t inj_drive;
     tq_engine_t engine;
     tq_injector_t injector;
+    tq_dwell_t dwell;
     ecu_signals_t sig;
     f32 rev_limit;
     f32 overboost_kpa;
